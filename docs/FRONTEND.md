@@ -33,7 +33,7 @@ Prefer the narrowest enforceable seam. Route information as follows:
 | Projection delivery, collaborative sync, recovery, and durability         | [Reliability](RELIABILITY.md)                                                     |
 | Detailed renderer state inventory and migration decisions                 | [Renderer view-state ownership](renderer-view-state-ownership.md)                 |
 | Reusable visual direction for agent-built UI                              | [General design guidelines](../.agents/skills/general-design-guidelines/SKILL.md) |
-| Exact dimensions, classes, timings, layer values, and component states    | Shared code, focused tests, and Storybook                                         |
+| Exact dimensions, classes, timings, layer values, and component states    | Shared code, focused tests, and the nearest visual surface                        |
 | Test runtime selection and handoff commands                               | [AGENTS.md](../AGENTS.md) and [Development](development.md)                       |
 | A local dependency or lifecycle caveat                                    | The owning Adapter/component plus its behavioral test                             |
 
@@ -316,9 +316,9 @@ that accurately describes the UI role:
 Do not mix layers to express one role inside a component—for example, a failure
 row must not combine a semantic error utility, a host variable, and a legacy
 token for its icon and label. Migrate by coherent surface, validate light/dark
-and lifecycle states in Storybook or browser tests, and leave feature-native
-Database, Board, Canvas, and editor semantics alone unless the roles are truly
-shared.
+and lifecycle states in the seeded real app or an isolated story, and leave
+feature-native Database, Board, Canvas, and editor semantics alone unless the
+roles are truly shared.
 
 The build-time owner is `scripts/semantic-theme/`. Generated artifacts are
 committed, deterministic inputs to the renderer build; ordinary builds do not
@@ -364,16 +364,16 @@ Load the narrow contract only for the branch being changed:
 These documents own feature behavior. Keep this file limited to conventions
 that remain useful when those features change.
 
-## Storybook and frontend tests
+## Seeded runs, Storybook, and frontend tests
 
 Testing commands, runtime selection, and handoff gates are authoritative in
 [AGENTS.md](../AGENTS.md) and [Development](development.md). Frontend work adds
 evidence at the seam that owns the behavior:
 
-- User-visible UI changes update or add focused Storybook coverage. Stories use
-  production projectors and components with injected runtime boundaries rather
-  than parallel fake view models or live Electron fallbacks.
-- Prefer an authoritative isolated scenario when the behavior depends on an integrated Project, Database projection, Page lifecycle, document authority, preload/Main transport, or Window Session.
+- Follow [AGENTS.md](../AGENTS.md)'s seeded-first UI evidence boundary. Use or
+  extend an authoritative scenario before creating feature-level stories or
+  parallel fake view models.
+- Use an authoritative isolated scenario when the behavior depends on an integrated Project, Database projection, Page lifecycle, document authority, preload/Main transport, or Window Session.
   The same domain recipe should serve Core integration and Electron/UI consumers through runtime-specific adapters; keep DOM navigation and observation in the optional UI projection.
 - Use `vp run dev --home <dir> --seed <scenario-id>` for a persistent,
   mutable real-app environment with HMR. The catalog initializes a new home but
@@ -381,11 +381,15 @@ evidence at the seam that owns the behavior:
   belong in the scenario's dedicated Electron E2E spec.
   Scenario manifests map stable logical keys to canonical IDs, so UI tests must
   not find authority by title when an identity is available.
-- Keep stories canvas-first. Use variants, args, and focused harnesses; render
-  menu-driven states open by default and split unrelated feature families into
-  separate stories.
-- Keep Storybook for reusable primitives, transient states, focused behavioral contracts, and pressure fixtures that do not require the full product runtime.
-  Remove an integrated story only after a real scenario or behavior test provides equivalent observable evidence; delete orphaned fake state in the same change.
+- Reserve Storybook for reusable primitives, transient or intentionally
+  synthetic states, focused behavioral contracts, and pressure fixtures that
+  do not need the product runtime. A user-visible change alone does not require
+  a story.
+- Stories use production components with injected runtime boundaries. Keep them
+  canvas-first and focused; render menu-driven states open by default.
+- Remove an integrated story after a real scenario or behavior test provides
+  equivalent observable evidence, and delete its orphaned fake state in the
+  same change.
 - Assert visible structure, accessibility, and behavior. Raw class checks,
   serialized markup, test IDs, and source inspection are fallback tools only
   when those representations are the real contract.

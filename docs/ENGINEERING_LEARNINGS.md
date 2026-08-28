@@ -294,9 +294,9 @@ initialize a suite-owned temporary `NODEX_HOME`; a supposedly pure helper must
 never lazily open the developer's store.
 
 When a flake appears only in CI, reproduce the exact commit, test project,
-runtime image, and execution order before changing production code. Storybook
-and manual review own visual fixture coverage; tests should protect behavior,
-not Tailwind strings or SVG paths.
+runtime image, and execution order before changing production code. Use seeded
+real-app review for integrated visual evidence and focused stories for isolated
+visual states. Tests should protect behavior, not Tailwind strings or SVG paths.
 
 ### Trace reachability before trusting names
 
