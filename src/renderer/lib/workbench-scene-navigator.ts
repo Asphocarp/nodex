@@ -21,7 +21,10 @@ import {
 import type { WorkbenchSceneLocation } from "../../shared/workbench-layout";
 import type { WorkbenchPanelId } from "../../shared/workbench-session-view";
 import { createSecureRuntimeId } from "../../shared/secure-runtime-id";
-import { resolveRightNeighborPanelPlacement } from "./workbench-panel-placement";
+import {
+  resolveRightNeighborPanelPlacement,
+  type WorkbenchSurfaceRelativePlacement,
+} from "./workbench-panel-placement";
 
 export type WorkbenchSurfaceOpenRequest =
   | {
@@ -76,10 +79,7 @@ export interface PresentWorkbenchPanelSurfaceInput {
   readonly target: {
     readonly panelId: WorkbenchPanelId;
     readonly leafId?: string;
-    readonly placement?: {
-      readonly kind: "adjacent-right";
-      readonly sourceSurfaceId: string;
-    };
+    readonly placement?: WorkbenchSurfaceRelativePlacement;
   };
   readonly mode: "durable" | "preview";
   readonly navigation: "select-owner" | "background";
@@ -88,6 +88,7 @@ export interface PresentWorkbenchPanelSurfaceInput {
 function resolvePanelSurfaceTarget(
   scene: WorkbenchSceneSnapshot,
   target: PresentWorkbenchPanelSurfaceInput["target"],
+  previewEntries: readonly WorkbenchScenePreviewEntry[],
 ): {
   readonly scene: WorkbenchSceneSnapshot;
   readonly panelId: WorkbenchPanelId;
@@ -97,32 +98,35 @@ function resolvePanelSurfaceTarget(
     return { scene, panelId: target.panelId, leafId: target.leafId };
   }
   const sourceSurface = resolveWorkbenchSceneSurface(scene, target.placement.sourceSurfaceId);
-  if (!sourceSurface) {
+  const durableSourcePanelId = sourceSurface
+    ? (["right", "bottom"] as const).find((panelId) =>
+        findWorkbenchPanelLeafForTab(scene.panels[panelId].layout, sourceSurface.id),
+      )
+    : undefined;
+  const durableSourceLeaf =
+    sourceSurface && durableSourcePanelId
+      ? findWorkbenchPanelLeafForTab(scene.panels[durableSourcePanelId].layout, sourceSurface.id)
+      : null;
+  const previewSource = previewEntries.find(
+    (entry) => entry.surface.id === target.placement?.sourceSurfaceId,
+  );
+  const sourcePanelId = durableSourcePanelId ?? previewSource?.panelId;
+  const sourceLeafId = durableSourceLeaf?.id ?? previewSource?.leafId;
+  if (!sourcePanelId || !sourceLeafId) {
     return { scene, panelId: target.panelId, leafId: target.leafId };
   }
-
-  const sourcePanelId = (["right", "bottom"] as const).find((panelId) =>
-    findWorkbenchPanelLeafForTab(scene.panels[panelId].layout, sourceSurface.id),
-  );
-  if (!sourcePanelId) {
-    return { scene, panelId: target.panelId, leafId: target.leafId };
-  }
-  const sourceLeaf = findWorkbenchPanelLeafForTab(
-    scene.panels[sourcePanelId].layout,
-    sourceSurface.id,
-  );
-  if (!sourceLeaf) {
-    return { scene, panelId: target.panelId, leafId: target.leafId };
+  if (target.placement.kind === "same-group") {
+    return { scene, panelId: sourcePanelId, leafId: sourceLeafId };
   }
   if (sourcePanelId === "bottom") {
-    return { scene, panelId: "bottom", leafId: sourceLeaf.id };
+    return { scene, panelId: "bottom", leafId: sourceLeafId };
   }
 
-  const placement = resolveRightNeighborPanelPlacement(scene.panels.right.layout, sourceLeaf.id, {
+  const placement = resolveRightNeighborPanelPlacement(scene.panels.right.layout, sourceLeafId, {
     fullWidth: scene.panels.right.size.fullWidth ?? false,
   });
   if (placement.kind === "fallback") {
-    return { scene, panelId: "right", leafId: sourceLeaf.id };
+    return { scene, panelId: "right", leafId: sourceLeafId };
   }
   if (placement.kind === "existing") {
     return { scene, panelId: "right", leafId: placement.leafId };
@@ -347,7 +351,11 @@ function presentDurableSurface(
       }
     }
 
-    const target = resolvePanelSurfaceTarget(scene, input.target);
+    const target = resolvePanelSurfaceTarget(
+      scene,
+      input.target,
+      port.preview?.list(input.owner) ?? [],
+    );
     const leafId = target.leafId ?? target.scene.panels[target.panelId].layout.activeLeafId;
     presentedSlot = { panelId: target.panelId, leafId };
     return patchWorkbenchScenePanel(
@@ -474,7 +482,11 @@ function presentPreviewSurface(
       );
     }
 
-    const target = resolvePanelSurfaceTarget(scene, input.target);
+    const target = resolvePanelSurfaceTarget(
+      scene,
+      input.target,
+      port.preview?.list(input.owner) ?? [],
+    );
     previewEntry = {
       panelId: target.panelId,
       leafId: target.leafId ?? target.scene.panels[target.panelId].layout.activeLeafId,

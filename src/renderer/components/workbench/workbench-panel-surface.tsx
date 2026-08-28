@@ -162,6 +162,12 @@ export function WorkbenchTabProjectionPanel({
         onTitleChange={(title) => {
           onUpdateTab(tab.id, { title });
         }}
+        onOpenPage={({ pageId, titleSnapshot }) => {
+          void onOpenPageTab(tab.config.projectId, pageId, titleSnapshot, {
+            openMode: "durable",
+            placement: { kind: "same-group", sourceSurfaceId: tab.id },
+          });
+        }}
       />
     );
   }

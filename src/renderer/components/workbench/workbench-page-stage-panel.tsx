@@ -44,6 +44,7 @@ import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-p
 import type { OpenPageInNewChatInput } from "@/lib/page-chat-actions";
 import { projectWorkspaceRootOrNull } from "@/lib/workbench-workspace-context";
 import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
+import type { WorkbenchSurfaceRelativePlacement } from "@/lib/workbench-panel-placement";
 import type { WorkbenchProjectionPageStageTabConfig } from "../../../shared/types";
 import { PageStage } from "./workbench-page-stage";
 import { pageChatWindowQueryOptions } from "@/lib/query-options";
@@ -51,7 +52,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { invoke } from "@/lib/api";
 
 export interface OpenPageTabOptions {
-  sourceTabId?: string;
+  placement?: WorkbenchSurfaceRelativePlacement;
   openMode?: "preview" | "durable";
 }
 
@@ -265,6 +266,7 @@ export function PageStageSessionTab({
           })),
           onOpenAncestor: (ancestor: { projectId: string; pageId: string; title: string }) => {
             void onOpenPageTab(ancestor.projectId, ancestor.pageId, ancestor.title, {
+              placement: { kind: "same-group", sourceSurfaceId: tab.id },
               openMode: "durable",
             });
           },
@@ -535,6 +537,7 @@ export function PageStageSessionTab({
             onOpenPage={async ({ accessContext, pageId, titleSnapshot, sourceBlockId }) => {
               if (accessContext.kind !== "project") return;
               await onOpenPageTab(accessContext.projectId, pageId, titleSnapshot, {
+                placement: { kind: "same-group", sourceSurfaceId: tab.id },
                 openMode: "durable",
               });
               if (!sourceBlockId) return;
@@ -546,7 +549,9 @@ export function PageStageSessionTab({
             }}
             onOpenCanvas={({ accessContext, canvasBlockId, titleSnapshot }) => {
               if (accessContext.kind !== "project") return;
-              void onOpenCanvasStage(accessContext.projectId, canvasBlockId, titleSnapshot);
+              void onOpenCanvasStage(accessContext.projectId, canvasBlockId, titleSnapshot, {
+                placement: { kind: "same-group", sourceSurfaceId: tab.id },
+              });
             }}
             onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
             onSendThreadSectionPrompt={async ({ threadId, prompt, promptInput }) => {

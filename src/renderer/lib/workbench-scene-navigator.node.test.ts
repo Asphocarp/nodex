@@ -338,6 +338,133 @@ describe("WorkbenchSceneNavigator", () => {
     expect(secondPageLeaf?.tabIds).toEqual([firstSurface.id, secondSurface.id]);
   });
 
+  test("keeps source-relative Page navigation in the source tab group", async () => {
+    const harness = createHarness();
+    const owner = { kind: "pages" as const };
+    const request = (pageId: string) => ({
+      kind: "page_stage" as const,
+      config: {
+        accessContext: { kind: "library" as const },
+        pageId,
+      },
+      titleSnapshot: pageId,
+    });
+    const source = await harness.navigator.presentPanelSurface({
+      owner,
+      request: request("page:source"),
+      target: { panelId: "right" },
+      mode: "durable",
+      navigation: "background",
+    });
+    if (source.status !== "presented") throw new Error("Expected source Page");
+    const distractor = await harness.navigator.presentPanelSurface({
+      owner,
+      request: request("page:distractor"),
+      target: {
+        panelId: "right",
+        placement: {
+          kind: "adjacent-right",
+          sourceSurfaceId: source.surfaceId,
+        },
+      },
+      mode: "durable",
+      navigation: "background",
+    });
+    if (distractor.status !== "presented") throw new Error("Expected distractor Page");
+
+    const child = await harness.navigator.presentPanelSurface({
+      owner,
+      request: request("page:child"),
+      target: {
+        panelId: "right",
+        placement: {
+          kind: "same-group",
+          sourceSurfaceId: source.surfaceId,
+        },
+      },
+      mode: "durable",
+      navigation: "background",
+    });
+    if (child.status !== "presented") throw new Error("Expected child Page");
+
+    const scene = harness.scenes.pages!;
+    const sourceLeaf = findWorkbenchPanelLeafForTab(scene.panels.right.layout, source.surfaceId);
+    const distractorLeaf = findWorkbenchPanelLeafForTab(
+      scene.panels.right.layout,
+      distractor.surfaceId,
+    );
+    const childLeaf = findWorkbenchPanelLeafForTab(scene.panels.right.layout, child.surfaceId);
+    expect(sourceLeaf?.id).not.toBe(distractorLeaf?.id);
+    expect(childLeaf?.id).toBe(sourceLeaf?.id);
+    expect(childLeaf?.tabIds).toEqual([source.surfaceId, child.surfaceId]);
+  });
+
+  test("resolves same-group navigation from an ephemeral Page preview", async () => {
+    const harness = createHarness();
+    const owner = { kind: "pages" as const };
+    const request = (pageId: string) => ({
+      kind: "page_stage" as const,
+      config: {
+        accessContext: { kind: "library" as const },
+        pageId,
+      },
+      titleSnapshot: pageId,
+    });
+    const anchor = await harness.navigator.presentPanelSurface({
+      owner,
+      request: request("page:anchor"),
+      target: { panelId: "right" },
+      mode: "durable",
+      navigation: "background",
+    });
+    if (anchor.status !== "presented") throw new Error("Expected anchor Page");
+    const other = await harness.navigator.presentPanelSurface({
+      owner,
+      request: request("page:other"),
+      target: {
+        panelId: "right",
+        placement: { kind: "adjacent-right", sourceSurfaceId: anchor.surfaceId },
+      },
+      mode: "durable",
+      navigation: "background",
+    });
+    if (other.status !== "presented") throw new Error("Expected other Page");
+    const sceneBeforePreview = harness.scenes.pages!;
+    const anchorLeaf = findWorkbenchPanelLeafForTab(
+      sceneBeforePreview.panels.right.layout,
+      anchor.surfaceId,
+    );
+    if (!anchorLeaf) throw new Error("Expected anchor leaf");
+    const preview = await harness.navigator.presentPanelSurface({
+      owner,
+      request: request("page:preview"),
+      target: { panelId: "right", leafId: anchorLeaf.id },
+      mode: "preview",
+      navigation: "background",
+    });
+    if (preview.status !== "presented") throw new Error("Expected preview Page");
+
+    const child = await harness.navigator.presentPanelSurface({
+      owner,
+      request: request("page:child"),
+      target: {
+        panelId: "right",
+        placement: { kind: "same-group", sourceSurfaceId: preview.surfaceId },
+      },
+      mode: "durable",
+      navigation: "background",
+    });
+    if (child.status !== "presented") throw new Error("Expected child Page");
+
+    const scene = harness.scenes.pages!;
+    expect(findWorkbenchPanelLeafForTab(scene.panels.right.layout, child.surfaceId)?.id).toBe(
+      anchorLeaf.id,
+    );
+    expect(findWorkbenchPanelLeafForTab(scene.panels.right.layout, other.surfaceId)?.id).not.toBe(
+      anchorLeaf.id,
+    );
+  });
+
   test("preserves Project context when selecting a Session owner", () => {
     const harness = createHarness();
 
@@ -455,10 +582,7 @@ describe("WorkbenchSceneNavigator", () => {
       request: request("page:child"),
       target: {
         panelId: "right",
-        placement: {
-          kind: "adjacent-right",
-          sourceSurfaceId: first.surfaceId,
-        },
+        placement: { kind: "same-group", sourceSurfaceId: first.surfaceId },
       },
       mode: "durable",
       navigation: "background",

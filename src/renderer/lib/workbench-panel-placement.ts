@@ -14,6 +14,26 @@ export type RightNeighborPanelPlacement =
   | { readonly kind: "existing"; readonly leafId: string }
   | { readonly kind: "ensure"; readonly sourceLeafId: string };
 
+export type WorkbenchSurfaceRelativePlacement =
+  | {
+      readonly kind: "same-group";
+      readonly sourceSurfaceId: string;
+    }
+  | {
+      readonly kind: "adjacent-right";
+      readonly sourceSurfaceId: string;
+    };
+
+export type WorkbenchSessionPanelSurfaceTarget =
+  | { readonly kind: "fallback"; readonly panelId: PanelId }
+  | { readonly kind: "existing"; readonly panelId: PanelId; readonly leafId: string }
+  | { readonly kind: "ensure-right"; readonly sourceLeafId: string };
+
+export interface WorkbenchPanelSurfaceSlot {
+  readonly panelId: PanelId;
+  readonly leafId: string;
+}
+
 export function resolveRightNeighborPanelPlacement(
   layout: WorkbenchPanelLayout,
   sourceLeafId: string | null,
@@ -67,17 +87,44 @@ export function resolveLeafIdForPanelTab(
   );
 }
 
-export function resolveDbCardSourceLeafId(
+export function resolveSessionPanelSurfaceTarget(
   session: WorkbenchSessionRenderProjection,
-  sourceTabId: string | undefined,
-): string | null {
-  if (!sourceTabId) return null;
-  const sourceTab = session.tabs.find(
-    (tab) => tab.id === sourceTabId && tab.panelId === "right" && tab.kind === "db_view",
+  requestedPanelId: PanelId,
+  placement: WorkbenchSurfaceRelativePlacement | undefined,
+  options: {
+    readonly rightPanelFullWidth: boolean;
+    readonly sourceSlot?: WorkbenchPanelSurfaceSlot | null;
+  },
+): WorkbenchSessionPanelSurfaceTarget {
+  if (!placement) return { kind: "fallback", panelId: requestedPanelId };
+
+  const sourceTab = session.tabs.find((tab) => tab.id === placement.sourceSurfaceId);
+  const durableSourceLeaf = sourceTab
+    ? findWorkbenchPanelLeafForTab(session.panels[sourceTab.panelId].layout, sourceTab.id)
+    : null;
+  const durableSourceSlot =
+    sourceTab && durableSourceLeaf
+      ? { panelId: sourceTab.panelId, leafId: durableSourceLeaf.id }
+      : null;
+  const sourceSlot = durableSourceSlot ?? options.sourceSlot;
+  if (!sourceSlot) return { kind: "fallback", panelId: requestedPanelId };
+
+  if (placement.kind === "same-group" || sourceSlot.panelId === "bottom") {
+    return { kind: "existing", ...sourceSlot };
+  }
+
+  const adjacent = resolveRightNeighborPanelPlacement(
+    session.panels.right.layout,
+    sourceSlot.leafId,
+    { fullWidth: options.rightPanelFullWidth },
   );
-  if (!sourceTab) return null;
-  const sourceLeafId = findWorkbenchPanelLeafForTab(session.panels.right.layout, sourceTab.id)?.id;
-  return sourceLeafId ?? null;
+  if (adjacent.kind === "existing") {
+    return { kind: "existing", panelId: "right", leafId: adjacent.leafId };
+  }
+  if (adjacent.kind === "ensure") {
+    return { kind: "ensure-right", sourceLeafId: adjacent.sourceLeafId };
+  }
+  return { kind: "existing", panelId: "right", leafId: sourceSlot.leafId };
 }
 
 export function readPageStagePanelTabPageRef(

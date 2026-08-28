@@ -3939,6 +3939,11 @@ beforeEach(() => {
   delete (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
   delete (
     globalThis as {
+      __lastWorkbenchCanvasStagePanelProps?: Record<string, unknown>;
+    }
+  ).__lastWorkbenchCanvasStagePanelProps;
+  delete (
+    globalThis as {
       __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
     }
   ).__lastWorkbenchDatabaseViewSurfaceProps;

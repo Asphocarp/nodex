@@ -1400,7 +1400,18 @@ describe("workbench session shell / pages-shell-navigation", () => {
   });
 
   test("opens a referenced Page without persisting interaction ancestry", async () => {
+    const rightLayout = splitWorkbenchPanelLeaf(
+      makePanelLayout(["parent-card-tab", "browser-tab"], "parent-card-tab"),
+      {
+        leafId: "main",
+        side: "right",
+        tabId: "browser-tab",
+        newLeafId: "leaf:browser",
+        newBranchId: "branch:root",
+      },
+    );
     const session = makeSession({
+      rightLayout,
       tabs: [
         {
           id: "parent-card-tab",
@@ -1414,6 +1425,15 @@ describe("workbench session shell / pages-shell-navigation", () => {
             pageId: "parent-card",
             titleSnapshot: "Parent Card",
           },
+        },
+        {
+          id: "browser-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "browser",
+          title: "Browser",
+          panelId: "right",
+          config: { projectId: "alpha" },
         },
       ],
     });
@@ -1472,6 +1492,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
             };
             pageId?: string;
           };
+          targetLeafId?: string;
         }
       | undefined;
     expect(input?.config).toEqual({
@@ -1479,12 +1500,80 @@ describe("workbench session shell / pages-shell-navigation", () => {
       pageId: "nested-card",
       titleSnapshot: "Nested Card",
     });
+    expect(input?.targetLeafId).toBe("main");
     const nestedProps = (
       globalThis as {
         __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
       }
     ).__mockPageStagePropsByPageId?.["nested-card"];
     expect(nestedProps?.breadcrumb).toBeUndefined();
+  });
+
+  test("opens a Canvas Page in the Canvas tab group", async () => {
+    const rightLayout = splitWorkbenchPanelLeaf(
+      makePanelLayout(["canvas-tab", "browser-tab"], "canvas-tab"),
+      {
+        leafId: "main",
+        side: "right",
+        tabId: "browser-tab",
+        newLeafId: "leaf:browser",
+        newBranchId: "branch:root",
+      },
+    );
+    const session = makeSession({
+      rightLayout,
+      tabs: [
+        {
+          id: "canvas-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "canvas_stage",
+          title: "Canvas",
+          panelId: "right",
+          config: {
+            projectId: "alpha",
+            canvasBlockId: "canvas-1",
+            titleSnapshot: "Canvas",
+          },
+        },
+        {
+          id: "browser-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "browser",
+          title: "Browser",
+          panelId: "right",
+          config: { projectId: "alpha" },
+        },
+      ],
+    });
+    renderWorkbench({ sessionsByProject: { alpha: [session] } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const canvasProps = (
+      globalThis as {
+        __lastWorkbenchCanvasStagePanelProps?: Record<string, unknown>;
+      }
+    ).__lastWorkbenchCanvasStagePanelProps;
+    const onOpenPage = canvasProps?.onOpenPage as
+      | ((input: { pageId: string; titleSnapshot?: string }) => void)
+      | undefined;
+    expect(typeof onOpenPage).toBe("function");
+
+    setInvokeCalls([]);
+    await act(async () => {
+      onOpenPage?.({ pageId: "canvas-page", titleSnapshot: "Canvas Page" });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const createCall = invokeCalls.find((call) => call[0] === "window-session-view:tab-create");
+    const input = createCall?.[1] as
+      | { targetLeafId?: string; config?: { pageId?: string } }
+      | undefined;
+    expect(input?.targetLeafId).toBe("main");
+    expect(input?.config?.pageId).toBe("canvas-page");
   });
 
   test("renders Page detail load failures as load errors instead of missing pages", async () => {
