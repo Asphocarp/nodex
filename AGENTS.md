@@ -10,6 +10,12 @@
 - DO NOT write tests that only assert a source file contains a string (source-string tests); that is redundant with the implementation and does not validate behavior.
 - Read [official doc of codex-app-server](https://developers.openai.com/codex/app-server.md) when dealing with codex-app-server.
 
+### Desktop UI inspection boundary
+
+- Inspect Nodex through a seeded development instance, Playwright, or an explicitly identified development CDP target.
+- Treat every already-running Nodex window as the user's production app unless its current-worktree, disposable development Profile is proven; its title, bundle identifier, or running state is not proof.
+- `computer-use` is opt-in: use it only when the user explicitly requests it for the current task, or approves a proposal that names the target instance and purpose. Inspection, testing, and screenshot requests are not implicit permission, and approval does not carry between tasks.
+
 ## Agent skills
 
 ### Domain docs
