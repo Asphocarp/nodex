@@ -7,13 +7,14 @@ import {
   CalendarOverdueIcon,
   CanvasIcon,
   ClockIcon,
-  CodeBracketsIcon,
+  CodeIcon,
   ComposerResumeIcon,
   DatabaseIcon,
   DeleteIcon,
   DownloadIcon,
   EditIcon,
   FileIcon,
+  FileTabIconSvg,
   FolderIcon,
   FolderOpenIcon,
   NewChatIcon,
@@ -42,7 +43,7 @@ describe("shared icon intrinsic geometry", () => {
     ["database", DatabaseIcon, "16"],
     ["board", BoardIcon, "16"],
     ["canvas", CanvasIcon, "16"],
-    ["code brackets", CodeBracketsIcon, "12"],
+    ["code", CodeIcon, "20"],
     ["calendar", CalendarIcon, "16"],
     ["calendar overdue", CalendarOverdueIcon, "16"],
     ["clock", ClockIcon, "16"],
@@ -71,6 +72,20 @@ describe("file and page identity icons", () => {
     expect(fileSvg?.querySelector("path")?.getAttribute("fill")).toBe("currentColor");
     expect(fileSvg?.hasAttribute("data-file-page-icon")).toBe(true);
     expect(pageSvg?.getAttribute("aria-hidden")).toBe("true");
+  });
+});
+
+describe("code identity icons", () => {
+  test("uses the canonical Code geometry for generic file tabs", () => {
+    const codeView = render(<CodeIcon />);
+    const fileTabView = render(<FileTabIconSvg icon="code" />);
+    const codeSvg = codeView.container.querySelector("svg");
+    const fileTabSvg = fileTabView.container.querySelector("svg");
+
+    expect(fileTabSvg?.getAttribute("viewBox")).toBe(codeSvg?.getAttribute("viewBox"));
+    expect(fileTabSvg?.querySelector("path")?.getAttribute("d")).toBe(
+      codeSvg?.querySelector("path")?.getAttribute("d"),
+    );
   });
 });
 

@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { CodeBracketsIcon } from "@/components/shared/icons";
+import { CodeIcon } from "@/components/shared/icons";
 import type { CodexDynamicToolCallView, CodexTranscriptEntry } from "../../../../../lib/types";
 import { normalizeAppMediaResourceSource } from "../../../../../lib/app-resource-source";
 import { cn } from "../../../../../lib/utils";
@@ -298,7 +298,7 @@ export function DynamicToolCallInspector({
             setIsExpanded((current) => !current);
           }}
         >
-          <CodeBracketsIcon />
+          <CodeIcon className="icon-xxs" />
           <span>Details</span>
         </button>
       </div>

@@ -1,5 +1,5 @@
 import { ArrowLeft, Link2 } from "@/components/shared/icons/generic-icons";
-import { CodeBracketsIcon, DeleteIcon, ProjectActionsIcon } from "@/components/shared/icons";
+import { CodeIcon, DeleteIcon, ProjectActionsIcon } from "@/components/shared/icons";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -95,7 +95,7 @@ export function PageStageToolbar({
                 "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
-            <CodeBracketsIcon className="icon-xs shrink-0" />
+            <CodeIcon className="icon-xs" />
           </button>
         </NodexTooltip>
 

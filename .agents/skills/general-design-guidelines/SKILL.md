@@ -428,7 +428,7 @@ border-top: 0.5px solid var(--border-token);
 - Use `currentColor` for fill/stroke — inherit color from parent
 - Use semantic app-owned icons from `@/components/shared/icons` for app-shell chrome, compact menus, sidebars, activities, file types, and resource identity. Component names describe meaning, never provenance.
 - Use the shared app-owned `FileIcon` / `PageIcon` geometry for generic resource identity in attachments, menus, breadcrumbs, and Page rows. Preserve extension/MIME-specific artwork in format-sensitive file trees and file tabs; keep folders and file-related actions distinct.
-- Import stock fallbacks only through `@/components/shared/icons/generic-icons`; its 16px / 1.75-stroke defaults are the baseline, not raw library defaults.
+- Search the semantic app-owned icon modules first. `generic-icons` and Lucide fallbacks are last resorts; if needed, import them only through `@/components/shared/icons/generic-icons`.
 - Keep reusable custom SVGs in `src/renderer/components/shared/icons/`. Feature-local SVGs are limited to diagrams, data marks, and composite artwork covered by the icon-boundary audit.
 - Standard compact shell/resource-action menu icon: `icon-xs` (16px). Reserve `icon-2xs` (14px) for denser secondary controls and indicators.
 - Standard sidebar/toolbar icon: `icon-sm` (18px). Use `icon-base` only where the 20px visual weight is intentional.

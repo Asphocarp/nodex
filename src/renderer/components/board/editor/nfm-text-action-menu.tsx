@@ -21,9 +21,9 @@ import {
 import {
   CheckmarkIcon,
   ChevronRightIcon,
+  CodeIcon,
   NfmSideMenuBulletedListBlockIcon,
   NfmSideMenuCheckListBlockIcon,
-  NfmSideMenuCodeBlockIcon,
   NfmSideMenuHeadingBlockIcon,
   NfmSideMenuNumberedListBlockIcon,
   NfmSideMenuQuoteBlockIcon,
@@ -31,7 +31,6 @@ import {
   NfmSideMenuToggleListBlockIcon,
   TextActionBoldIcon,
   TextActionClearFormatIcon,
-  TextActionCodeIcon,
   TextActionCommentIcon,
   TextActionCommentPencilIcon,
   TextActionEllipsisIcon,
@@ -580,7 +579,7 @@ function BlockTypeIcon({ item }: { item: TextActionBlockTypeItem | null }) {
   if (item.key === "numbered-list") return <NfmSideMenuNumberedListBlockIcon />;
   if (item.key === "todo-list") return <NfmSideMenuCheckListBlockIcon />;
   if (item.key === "toggle-list") return <NfmSideMenuToggleListBlockIcon />;
-  if (item.key === "code") return <NfmSideMenuCodeBlockIcon />;
+  if (item.key === "code") return <CodeIcon />;
 
   return <NfmSideMenuTextBlockIcon />;
 }
@@ -1706,7 +1705,7 @@ export function NfmTextActionMenuSurface({
                 selected={activeStyles.code}
                 onActivate={() => onToggleStyle("code")}
               >
-                <TextActionCodeIcon />
+                <CodeIcon />
               </TextActionButton>
             </TextActionButtonTooltip>
             <TextActionButtonTooltip label="Equation">

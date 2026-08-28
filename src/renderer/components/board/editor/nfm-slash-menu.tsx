@@ -56,7 +56,7 @@ import {
   CalendarIcon,
   ClockIcon,
   CanvasIcon,
-  CodeBracketsIcon,
+  CodeIcon,
   NfmImageBlockIcon,
   NfmSideMenuPageInIcon,
   NfmTableBlockIcon,
@@ -281,7 +281,7 @@ function getNfmSlashMenuItemIcon(key: NfmSlashMenuItemKey, turnIntoKey?: NfmTurn
   if (key === "subpage" || key === "mention_page") return <PageIcon className="size-5" />;
   if (key === "thread_section") return <ThreadIcon className="size-5" />;
   if (key === "math_block" || key === "inline_math") return <TextActionEquationIcon />;
-  if (key === "code_mermaid") return <CodeBracketsIcon className="size-5" />;
+  if (key === "code_mermaid") return <CodeIcon />;
   return <Settings2 className="size-5" />;
 }
 

@@ -277,7 +277,8 @@ work follows [Page Stage rich-editor performance](product-specs/card-stage-rich-
   shape recurs; do not grow feature-local clones.
 - Keep app-owned icons in the shared icon modules. Choose icons by product
   meaning and normalize geometry at that boundary instead of scattering inline
-  SVG paths or compensating classes through features.
+  SVG paths or compensating classes through features. Search the other shared
+  icon modules first; `generic-icons` and Lucide fallback icons are last resorts.
 - Give visual roles an explicit semantic class or data attribute at their owning
   module. Do not style controls through localized accessibility copy such as
   `aria-label`, or through interaction mechanics such as `draggable`.
