@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { CodeBracketsIcon } from "@/components/shared/icons";
+import { CodeIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
   NodexDialogBody as DialogBody,
@@ -143,7 +143,7 @@ export function ToolCallRawDialog({
       onPointerEnter={preloadSourceViewer}
       onFocus={preloadSourceViewer}
     >
-      <CodeBracketsIcon />
+      <CodeIcon className="icon-xxs" />
       {triggerKind === "text" ? <span>{triggerText}</span> : null}
     </button>
   );

@@ -433,6 +433,15 @@ describe("NfmSlashMenu", () => {
       false,
     );
 
+    const codeIconView = render(<>{items.find(({ key }) => key === "code_block")?.icon}</>);
+    const mermaidIconView = render(<>{items.find(({ key }) => key === "code_mermaid")?.icon}</>);
+    const codeSvg = codeIconView.container.querySelector("svg");
+    const mermaidSvg = mermaidIconView.container.querySelector("svg");
+    expect(mermaidSvg?.getAttribute("viewBox")).toBe(codeSvg?.getAttribute("viewBox"));
+    expect(mermaidSvg?.querySelector("path")?.getAttribute("d")).toBe(
+      codeSvg?.querySelector("path")?.getAttribute("d"),
+    );
+
     const view = renderSuggestionMenu({
       items,
       loadingState: "loaded",

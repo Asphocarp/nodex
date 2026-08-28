@@ -1,8 +1,8 @@
 import {
+  CodeIcon,
   NfmCalloutBlockIcon,
   NfmSideMenuBulletedListBlockIcon,
   NfmSideMenuCheckListBlockIcon,
-  NfmSideMenuCodeBlockIcon,
   NfmSideMenuHeadingBlockIcon,
   NfmSideMenuNumberedListBlockIcon,
   NfmSideMenuQuoteBlockIcon,
@@ -49,7 +49,7 @@ export function NfmTurnIntoBlockIcon({ targetKey, className }: NfmTurnIntoBlockI
     return <TextActionEquationIcon className={className} />;
   }
   if (targetKey === "code") {
-    return <NfmSideMenuCodeBlockIcon className={className} />;
+    return <CodeIcon className={className} />;
   }
   if (targetKey === "callout") {
     return <NfmCalloutBlockIcon className={className} />;

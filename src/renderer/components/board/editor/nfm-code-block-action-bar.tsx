@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Check, Copy, Ellipsis, Maximize2 } from "@/components/shared/icons/generic-icons";
 import {
   CodeAndPreviewIcon,
-  CodeOnlyPreviewIcon,
+  CodeIcon,
   DownloadIcon,
   PreviewOnlyIcon,
 } from "@/components/shared/icons";
@@ -32,7 +32,7 @@ const MERMAID_PREVIEW_OPTIONS = [
     value: "code",
     ariaLabel: "Show only code and hide preview",
     tooltip: "Code",
-    icon: CodeOnlyPreviewIcon,
+    icon: CodeIcon,
   },
   {
     value: "preview",
@@ -100,9 +100,9 @@ function MermaidPreviewModePicker({
       <button
         type="button"
         aria-label="Open language preview format dropdown"
-        className={cn(codeBlockActionButtonClassName, "[&_svg]:size-4")}
+        className={codeBlockActionButtonClassName}
       >
-        <CurrentIcon />
+        <CurrentIcon className="size-4 shrink-0" />
       </button>
     </NodexPopoverTrigger>
   );
@@ -146,7 +146,6 @@ function MermaidPreviewModePicker({
                   data-mermaid-preview-mode-option={option.value}
                   className={cn(
                     codeBlockActionButtonClassName,
-                    "[&_svg]:size-4",
                     selected &&
                       "bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] text-[var(--foreground)]",
                   )}
@@ -157,7 +156,7 @@ function MermaidPreviewModePicker({
                     moveSelection(index, event.key === "ArrowLeft" ? -1 : 1);
                   }}
                 >
-                  <OptionIcon />
+                  <OptionIcon className="size-4 shrink-0" />
                 </button>
               </NodexTooltip>
             </div>

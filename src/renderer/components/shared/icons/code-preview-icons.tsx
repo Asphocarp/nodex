@@ -22,16 +22,6 @@ function CodePreviewIcon({
   );
 }
 
-export function CodeOnlyPreviewIcon(props: CodePreviewIconProps) {
-  return (
-    <CodePreviewIcon
-      viewBox="0.89 0 14.22 16"
-      path="M9.611 2.36c.332.094.524.44.429.772l-2.88 10.08a.625.625 0 0 1-1.201-.344l2.88-10.08a.625.625 0 0 1 .772-.428M4.246 4.39a.626.626 0 0 1 .885.885L2.404 8l2.727 2.727a.626.626 0 0 1-.885.884L1.078 8.443a.627.627 0 0 1 0-.885zm6.624 0a.626.626 0 0 1 .885 0l3.168 3.168a.627.627 0 0 1 0 .885l-3.168 3.168a.625.625 0 0 1-.885-.884L13.596 8 10.87 5.275a.626.626 0 0 1 0-.885"
-      {...props}
-    />
-  );
-}
-
 export function PreviewOnlyIcon(props: CodePreviewIconProps) {
   return (
     <CodePreviewIcon

@@ -36,7 +36,7 @@ import {
 } from "react";
 import {
   CheckmarkIcon,
-  CodeBracketsIcon,
+  CodeIcon,
   DownloadIcon,
   DragHandleDotsIcon,
   NfmSideMenuAiFaceIcon,
@@ -575,7 +575,7 @@ function getActionIcon(key: NfmSideMenuActionKey) {
   if (key === "expand-diagram") return <Maximize2 className="size-4" />;
   if (key === "download-diagram") return <DownloadIcon className="size-4" />;
   if (key === "wrap-code") return <ReviewEnableWordWrapIcon className="size-4" />;
-  if (key === "code-language") return <CodeBracketsIcon className="size-5" />;
+  if (key === "code-language") return <CodeIcon />;
   if (key === "format-code") return <WandSparkles className="size-4" />;
   if (key === "turn-into") return <NfmSideMenuTurnIntoIcon />;
   if (key === "color") return <NfmSideMenuColorIcon />;
@@ -587,7 +587,7 @@ function getActionIcon(key: NfmSideMenuActionKey) {
   if (key === "suggest-edits") return <NfmSideMenuSuggestEditsIcon />;
   if (key === "present-from-here") return <NfmSideMenuPlayIcon />;
   if (key === "ask-ai") return <NfmSideMenuAiFaceIcon />;
-  if (key === "convert-divider-to-thread-section") return <CodeBracketsIcon className="size-5" />;
+  if (key === "convert-divider-to-thread-section") return <CodeIcon />;
   return <NfmSideMenuTableHeaderIcon />;
 }
 
@@ -1065,7 +1065,7 @@ function NfmSideMenuSubmenu({
             <NfmSideMenuSubmenuRow
               key={language.id}
               selected={language.id === codeLanguageId}
-              leftSlot={<CodeBracketsIcon className="size-5" />}
+              leftSlot={<CodeIcon />}
               onClick={() => onCodeLanguageChange(language.id)}
             >
               {language.label}
