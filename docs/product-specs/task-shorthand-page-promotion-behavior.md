@@ -57,8 +57,8 @@ A real mutation error still rolls back the entire transfer batch.
 ## Interaction
 
 The Pages setting exposes one preference: **Task shorthand on Block → Page**.
-New Profiles default to On.
-The former parse and strip preferences migrate to On only when neither was explicitly Off; the legacy keys are then removed.
+New Profiles default to Off.
+When either former parse or strip preference exists, the pair migrates to On only when neither was explicitly Off; the legacy keys are then removed.
 
 Static authoring feedback is presentation-only.
 A quiet inline decoration marks a recognized prefix; it never adds a trailing summary chip, changes the document model, enters Yjs, or changes clipboard serialization.

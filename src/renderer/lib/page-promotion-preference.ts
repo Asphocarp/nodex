@@ -3,7 +3,7 @@ import { writeStoredBoolean } from "./storage-boolean";
 export const TASK_SHORTHAND_PAGE_PROMOTION_STORAGE_KEY = "nodex-task-shorthand-page-promotion-v1";
 export const LEGACY_SMART_PREFIX_PARSING_STORAGE_KEY = "nodex-smart-prefix-parsing-enabled-v1";
 export const LEGACY_STRIP_SMART_PREFIX_STORAGE_KEY = "nodex-strip-smart-prefix-from-title-v1";
-export const DEFAULT_TASK_SHORTHAND_PAGE_PROMOTION_ENABLED = true;
+export const DEFAULT_TASK_SHORTHAND_PAGE_PROMOTION_ENABLED = false;
 export const TASK_SHORTHAND_PAGE_PROMOTION_CHANGE_EVENT =
   "nodex:task-shorthand-page-promotion-change";
 
@@ -21,9 +21,12 @@ const storedBoolean = (key: string): boolean | null => {
 export const readTaskShorthandPagePromotionEnabled = (): boolean => {
   const current = storedBoolean(TASK_SHORTHAND_PAGE_PROMOTION_STORAGE_KEY);
   if (current !== null) return current;
-  const enabled =
-    storedBoolean(LEGACY_SMART_PREFIX_PARSING_STORAGE_KEY) !== false &&
-    storedBoolean(LEGACY_STRIP_SMART_PREFIX_STORAGE_KEY) !== false;
+  const legacyParsing = storedBoolean(LEGACY_SMART_PREFIX_PARSING_STORAGE_KEY);
+  const legacyStripping = storedBoolean(LEGACY_STRIP_SMART_PREFIX_STORAGE_KEY);
+  const hasLegacyPreference = legacyParsing !== null || legacyStripping !== null;
+  const enabled = hasLegacyPreference
+    ? legacyParsing !== false && legacyStripping !== false
+    : DEFAULT_TASK_SHORTHAND_PAGE_PROMOTION_ENABLED;
   writeTaskShorthandPagePromotionEnabled(enabled);
   try {
     localStorage.removeItem(LEGACY_SMART_PREFIX_PARSING_STORAGE_KEY);

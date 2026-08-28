@@ -23,13 +23,15 @@ describe("task shorthand Page promotion preference", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => localStorage.clear());
 
-  it("defaults new Profiles to enabled", () => {
-    expect(readTaskShorthandPagePromotionEnabled()).toBe(true);
+  it("defaults new Profiles to disabled", () => {
+    expect(readTaskShorthandPagePromotionEnabled()).toBe(false);
+    expect(localStorage.getItem(TASK_SHORTHAND_PAGE_PROMOTION_STORAGE_KEY)).toBe("false");
   });
 
   it.each([
-    [null, null, true],
     ["true", "true", true],
+    ["true", null, true],
+    [null, "true", true],
     ["false", "true", false],
     ["true", "false", false],
     ["false", "false", false],
