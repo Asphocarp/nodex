@@ -1,4 +1,3 @@
-import { FileIcon, FolderIcon, PageIcon } from "@/components/shared/icons";
 import type { ReactNode } from "react";
 import { Bot, Link2 } from "@/components/shared/icons/generic-icons";
 import { Streamdown } from "streamdown";
@@ -34,6 +33,8 @@ import { streamdownCodePlugin } from "@/lib/streamdown";
 import { DateMentionInlineVisual } from "./date-mention-inline-visual";
 import { ThreadMentionInlineVisual } from "./thread-mention-inline-visual";
 import { PageMentionInlineVisual } from "./page-mention-inline-visual";
+import { InlineReferenceVisual } from "./inline-reference-visual";
+import { AttachmentResourceIcon } from "./attachment-resource-icon";
 import { CodeBlockReadOnlyHeader } from "@/components/shared/code-block-readonly-header";
 import { MermaidCodePreview } from "@/components/board/editor/mermaid-code-preview";
 import { useTheme } from "@/lib/use-theme";
@@ -543,14 +544,6 @@ function InlineItem({
   }
 
   if (item.type === "attachment") {
-    const Icon =
-      item.mode === "link"
-        ? Link2
-        : item.kind === "folder"
-          ? FolderIcon
-          : item.kind === "file"
-            ? FileIcon
-            : PageIcon;
     const label =
       item.name.trim() || (item.kind === "text" ? "Pasted text" : "Untitled attachment");
 
@@ -558,10 +551,20 @@ function InlineItem({
       <NodexTooltip
         tooltipContent={item.mode === "link" ? item.source : item.origin || item.source}
       >
-        <span className="inline-flex max-w-[18rem] items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 align-middle text-[12px] leading-5 text-[color-mix(in_srgb,var(--foreground)_84%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_10%,transparent)]">
-          <Icon className="size-3 shrink-0" />
-          <span className="truncate">{label}</span>
-        </span>
+        <InlineReferenceVisual
+          className="max-w-[18rem]"
+          label={label}
+          icon={
+            <AttachmentResourceIcon
+              kind={item.kind}
+              name={item.name}
+              mimeType={item.mimeType}
+              className="size-full"
+            />
+          }
+          trailing={item.mode === "link" ? <Link2 className="size-full" /> : undefined}
+          data-attachment-inline-chip="true"
+        />
       </NodexTooltip>
     );
   }

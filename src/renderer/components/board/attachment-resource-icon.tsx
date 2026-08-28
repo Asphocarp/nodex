@@ -1,4 +1,5 @@
 import { FileResourceIcon } from "@/components/shared/file-resource-icon";
+import { getFileTreeIconColor, resolveFileTreeIconToken } from "@/lib/file-tree-icons";
 
 interface AttachmentResourceIconProps {
   readonly kind: "text" | "file" | "folder";
@@ -16,6 +17,14 @@ export function AttachmentResourceIcon({
 }: AttachmentResourceIconProps) {
   const resourcePath = kind === "folder" ? `${name || "folder"}/` : name;
   const resourceMimeType = mimeType || (kind === "text" ? "text/plain" : undefined);
+  const colorToken = resolveFileTreeIconToken(resourcePath || "");
 
-  return <FileResourceIcon path={resourcePath} mimeType={resourceMimeType} className={className} />;
+  return (
+    <FileResourceIcon
+      path={resourcePath}
+      mimeType={resourceMimeType}
+      className={className}
+      style={{ color: getFileTreeIconColor(colorToken) }}
+    />
+  );
 }

@@ -266,12 +266,18 @@ Attachment chips are compact inline tokens, not embedded mini-cards.
 
 Current visual contract:
 
-- inline, baseline-participating chip
+- the same lightweight inline-reference visual as Page and chat mentions across
+  editable, read-only, and static NFM surfaces
+- inline, baseline-participating geometry with no resting fill or horizontal
+  capsule padding
 - concise label only
-- path/MIME-derived File icon on the left, using the same projection as Page
-  Files; folders retain the folder glyph
+- path/MIME-derived File icon on the left, using the same glyph projection as
+  Page Files and the existing file-type color projection; folders retain the
+  folder glyph
+- subtle solid label underline at rest
+- a local foreground-derived highlight on hover, keyboard focus, or token
+  selection
 - optional link glyph on the right for linked attachments
-- purple tokenized mention-like styling
 
 The chip should feel like a mention/reference token, not like a separate block element.
 
@@ -310,7 +316,7 @@ The attachment popover is the detailed interaction surface.
 
 Header shows:
 
-- the same path/MIME-derived icon as the attachment chip
+- the same type-colored, path/MIME-derived icon as the attachment chip
 - full label
 - kind
 - byte size when available

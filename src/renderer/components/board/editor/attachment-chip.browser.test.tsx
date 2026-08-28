@@ -86,7 +86,13 @@ describe("attachment chip File icons", () => {
       const label = await view.findByText("review.webm");
       const chip = label.closest("button");
       expect(chip).not.toBeNull();
-      const chipIcon = chip?.querySelector<SVGSVGElement>('[data-file-tab-icon="file"]');
+      if (!chip) throw new Error("Attachment chip was not rendered");
+      expect(chip.getAttribute("data-inline-reference-chip")).toBe("true");
+      expect(chip.getAttribute("data-attachment-inline-chip")).toBe("true");
+      expect(chip.getAttribute("data-mention-inline-chip")).toBeNull();
+      expect(getComputedStyle(chip).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+      expect(getComputedStyle(label).textDecorationLine).toContain("underline");
+      const chipIcon = chip.querySelector<SVGSVGElement>('[data-file-tab-icon="file"]');
       expect(chipIcon).not.toBeNull();
       const chipIconGeometry = chipIcon?.querySelector("path")?.getBBox();
       const chipIconBox = chipIcon?.getBoundingClientRect();
