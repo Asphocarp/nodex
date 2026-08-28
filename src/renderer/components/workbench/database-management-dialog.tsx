@@ -1,4 +1,4 @@
-import { DatabaseIcon, PlusIcon } from "@/components/shared/icons";
+import { DatabaseIcon, DeleteIcon, PlusIcon } from "@/components/shared/icons";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ArrowDown,
@@ -6,7 +6,6 @@ import {
   Columns3,
   List,
   SlidersHorizontal,
-  Trash2,
 } from "@/components/shared/icons/generic-icons";
 import {
   databaseViewReferencedPropertyIdsV4,
@@ -283,7 +282,7 @@ export function DatabaseManagementSurface({
                           {PROPERTY_TYPES.find((type) => type.value === property.valueType)?.label}
                         </span>
                         <NodexIconButton
-                          icon={Trash2}
+                          icon={DeleteIcon}
                           size="xs"
                           tone="danger"
                           ariaLabel={`Delete property ${property.name}`}
@@ -365,7 +364,7 @@ export function DatabaseManagementSurface({
                                 }
                                 className="rounded p-0.5 text-token-description-foreground opacity-0 hover:text-token-error-foreground group-hover/option:opacity-100 focus-visible:opacity-100"
                               >
-                                <Trash2 className="size-3 shrink-0" />
+                                <DeleteIcon className="size-3 shrink-0" />
                               </button>
                             </span>
                           ))}
@@ -644,7 +643,7 @@ export function DatabaseManagementSurface({
                           </span>
                         ) : (
                           <NodexIconButton
-                            icon={Trash2}
+                            icon={DeleteIcon}
                             size="xs"
                             tone="danger"
                             ariaLabel={`Delete View ${view.name}`}

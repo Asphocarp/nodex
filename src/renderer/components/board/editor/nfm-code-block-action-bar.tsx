@@ -1,14 +1,9 @@
 import { useRef, useState } from "react";
-import {
-  Check,
-  Copy,
-  Download,
-  Ellipsis,
-  Maximize2,
-} from "@/components/shared/icons/generic-icons";
+import { Check, Copy, Ellipsis, Maximize2 } from "@/components/shared/icons/generic-icons";
 import {
   CodeAndPreviewIcon,
   CodeOnlyPreviewIcon,
+  DownloadIcon,
   PreviewOnlyIcon,
 } from "@/components/shared/icons";
 import { useTransientFeedback } from "@/components/shared/use-transient-feedback";
@@ -283,7 +278,7 @@ export function NfmCodeBlockActionBar({
                   className={codeBlockActionButtonClassName}
                   onClick={mermaid.onDownload}
                 >
-                  <Download />
+                  <DownloadIcon />
                 </button>
               </NodexTooltip>
             </>

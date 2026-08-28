@@ -13,13 +13,8 @@ import {
 import { SideMenuController, type LinkToolbarProps, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/shadcn";
-import {
-  ChevronDown,
-  ChevronUp,
-  CornerDownLeft,
-  Repeat2,
-  X,
-} from "@/components/shared/icons/generic-icons";
+import { ChevronDown, ChevronUp, CornerDownLeft, X } from "@/components/shared/icons/generic-icons";
+import { ReplaceIcon } from "@/components/shared/icons";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 
@@ -2820,7 +2815,7 @@ function NfmEditorInstance({
                     onClick={() => setReplaceOpen((prev) => !prev)}
                     aria-label={replaceOpen ? "Hide replace controls" : "Show replace controls"}
                   >
-                    <Repeat2 className="size-4" />
+                    <ReplaceIcon className="size-4" />
                   </button>
                 </NodexTooltip>
                 <NodexTooltip tooltipContent="Close (Esc)">

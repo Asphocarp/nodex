@@ -32,8 +32,8 @@ import {
   AutomationMoreIcon,
   ChevronRightIcon,
   ComposerResumeIcon,
-  GoalEditIcon,
-  GoalTrashIcon,
+  DeleteIcon,
+  EditIcon,
   QueueFailureIcon,
   QueuePauseIcon,
   QueuePendingInfoIcon,
@@ -459,7 +459,7 @@ function QueuedFollowUpRow({
               void actions.onRemoveQueuedFollowUp(threadId, row.followUpId);
             }}
           >
-            <GoalTrashIcon className="icon-2xs" />
+            <DeleteIcon className="icon-2xs" />
           </QueueActionButton>
           <NodexDropdownMenu
             triggerButton={
@@ -482,7 +482,7 @@ function QueuedFollowUpRow({
                   ledgerRevision: row.ledgerRevision,
                 });
               }}
-              leftSlot={<GoalEditIcon className={QUEUE_MENU_ICON_CLASS_NAME} />}
+              leftSlot={<EditIcon className={QUEUE_MENU_ICON_CLASS_NAME} />}
             >
               Edit message
             </NodexDropdownItem>

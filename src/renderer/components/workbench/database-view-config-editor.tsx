@@ -1,5 +1,5 @@
-import { PlusIcon } from "@/components/shared/icons";
-import { ArrowDown, ArrowUp, ListFilter, Trash2 } from "@/components/shared/icons/generic-icons";
+import { DeleteIcon, PlusIcon } from "@/components/shared/icons";
+import { ArrowDown, ArrowUp, ListFilter } from "@/components/shared/icons/generic-icons";
 import { useEffect, type ReactNode } from "react";
 import type {
   DatabaseJsonValue,
@@ -228,7 +228,7 @@ function FilterNodeEditor({
         <div className="flex min-h-8 items-center gap-2 rounded-md bg-token-error-background/30 px-2 text-xs text-token-error-foreground">
           <span className="min-w-0 flex-1 truncate">Missing property {node.propertyId}</span>
           <NodexIconButton
-            icon={Trash2}
+            icon={DeleteIcon}
             size="xs"
             tone="danger"
             ariaLabel="Remove invalid filter"
@@ -284,7 +284,7 @@ function FilterNodeEditor({
           onChange={(value) => onUpdate(path, { ...node, value })}
         />
         <NodexIconButton
-          icon={Trash2}
+          icon={DeleteIcon}
           size="xs"
           tone="danger"
           ariaLabel={`Remove filter ${property.name}`}
@@ -346,7 +346,7 @@ function FilterNodeEditor({
           ) : null}
           {depth > 0 ? (
             <NodexIconButton
-              icon={Trash2}
+              icon={DeleteIcon}
               size="xs"
               tone="danger"
               ariaLabel={`Remove filter group ${path.join(".")}`}
@@ -506,7 +506,7 @@ function SortEditor({
             onClick={() => onChange(moveDatabaseViewSort(sorts, index, "down"))}
           />
           <NodexIconButton
-            icon={Trash2}
+            icon={DeleteIcon}
             size="xs"
             tone="danger"
             ariaLabel={`Remove sort ${index + 1}`}

@@ -1,12 +1,8 @@
 import { useEffect, useState, type ReactNode, type Ref } from "react";
-import {
-  DownloadIcon,
-  ImageIcon,
-  LoaderCircleIcon,
-  RotateCcw,
-} from "@/components/shared/icons/generic-icons";
+import { ImageIcon, LoaderCircleIcon, RotateCcw } from "@/components/shared/icons/generic-icons";
 import {
   ChevronDownIcon,
+  DownloadIcon,
   FolderOpenIcon,
   ImageCommentIcon,
   ImageRemoveIcon,

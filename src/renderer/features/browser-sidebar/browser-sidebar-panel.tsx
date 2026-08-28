@@ -16,7 +16,6 @@ import {
   Check,
   AlertTriangle,
   ContactRound,
-  Download,
   History,
   Info,
   KeyRound,
@@ -30,7 +29,6 @@ import {
   RotateCcw,
   Settings2,
   Smartphone,
-  Trash2,
   WifiOff,
   X,
 } from "@/components/shared/icons/generic-icons";
@@ -137,6 +135,8 @@ import {
   BrowserAnnotateIcon,
   ActivitySpinnerIcon,
   BrowserBackIcon,
+  DeleteIcon,
+  DownloadIcon,
   BrowserExternalIcon,
   BrowserHideIcon,
   BrowserLocalServerFilterIcon,
@@ -1274,7 +1274,7 @@ export function BrowserSidebarPanel({
               onClick={() => setDownloadsOpen(true)}
             >
               <span className="relative">
-                <Download className="icon-sm" />
+                <DownloadIcon className="icon-sm" />
                 <span className="absolute -right-1 -bottom-1 size-1.5 rounded-full bg-token-text-link-foreground ring-2 ring-token-main-surface-primary" />
               </span>
             </BrowserToolbarButton>
@@ -1939,10 +1939,13 @@ function BrowserOverflowMenu({
         </button>
       </div>
       <NodexDropdownSeparator />
-      <NodexDropdownItem leftSlot={<Download className="icon-xs" />} onSelect={onOpenDownloads}>
+      <NodexDropdownItem leftSlot={<DownloadIcon className="icon-xs" />} onSelect={onOpenDownloads}>
         Downloads
       </NodexDropdownItem>
-      <NodexDropdownItem leftSlot={<Download className="icon-xs" />} onSelect={onOpenProfileImport}>
+      <NodexDropdownItem
+        leftSlot={<DownloadIcon className="icon-xs" />}
+        onSelect={onOpenProfileImport}
+      >
         Import browser data
       </NodexDropdownItem>
       <NodexDropdownSeparator />
@@ -2105,7 +2108,7 @@ export function BrowserDownloadsPage({
   return (
     <section className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-token-border px-4">
-        <Download className="icon-sm text-token-text-tertiary" />
+        <DownloadIcon className="icon-sm text-token-text-tertiary" />
         <h2 className="min-w-0 flex-1 text-sm font-semibold text-token-text-primary">Downloads</h2>
         <button
           type="button"
@@ -2162,7 +2165,7 @@ function BrowserDownloadRow({
   return (
     <article className="flex min-w-0 items-center gap-3 px-4 py-3">
       <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-token-foreground/5 text-token-text-tertiary">
-        <Download className="icon-sm" />
+        <DownloadIcon className="icon-sm" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-token-text-primary">
@@ -2218,7 +2221,7 @@ function BrowserDownloadRow({
               label="Remove from history"
               onClick={() => action("remove")}
             >
-              <Trash2 className="icon-xs" />
+              <DeleteIcon className="icon-xs" />
             </BrowserDownloadActionButton>
           </>
         )}

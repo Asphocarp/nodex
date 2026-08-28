@@ -20,8 +20,13 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { ActivitySpinnerIcon, CheckmarkIcon, ChevronDownIcon } from "@/components/shared/icons";
-import { ImagePlus, Link2, Trash2, UploadCloud } from "@/components/shared/icons/generic-icons";
+import {
+  ActivitySpinnerIcon,
+  CheckmarkIcon,
+  ChevronDownIcon,
+  DeleteIcon,
+} from "@/components/shared/icons";
+import { ImagePlus, Link2, UploadCloud } from "@/components/shared/icons/generic-icons";
 import { NodexButton } from "@/components/ui/button";
 import {
   NodexDropdownContent,
@@ -50,7 +55,7 @@ import type { NfmFormattingToolbarMode } from "./nfm-formatting-toolbar-controll
 const NfmFormattingToolbarIconContext = createContext<ReactNode | undefined>(undefined);
 
 const NFM_LEGACY_FORMATTING_TOOLBAR_ICON_OVERRIDES: Record<string, ReactNode> = {
-  fileDeleteButton: <Trash2 />,
+  fileDeleteButton: <DeleteIcon />,
   filePreviewButton: <ImagePlus />,
 };
 

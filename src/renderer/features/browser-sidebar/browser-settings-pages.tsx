@@ -1,6 +1,6 @@
-import { SearchIcon } from "@/components/shared/icons";
+import { DeleteIcon, DownloadIcon, SearchIcon } from "@/components/shared/icons";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Download, Puzzle, RotateCcw, Trash2 } from "@/components/shared/icons/generic-icons";
+import { Puzzle, RotateCcw } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDropdownItem,
@@ -165,7 +165,7 @@ function BrowserSettingsOverview({
             disabled={!capabilities.profileImport.available}
             onClick={() => setImportOpen(true)}
           >
-            <Download />
+            <DownloadIcon />
             Import
           </NodexButton>
         </NodexSettingsRow>
@@ -756,7 +756,7 @@ function OriginRuleRows({
           })
         }
       >
-        <Trash2 />
+        <DeleteIcon />
       </NodexButton>
     </NodexSettingsRow>
   ));
@@ -811,7 +811,7 @@ export function BrowserPasswordsSettingsPage({
           disabled={!capability.available}
           onClick={() => setImportOpen(true)}
         >
-          <Download />
+          <DownloadIcon />
           Import
         </NodexButton>
       }
@@ -835,7 +835,7 @@ export function BrowserPasswordsSettingsPage({
                   aria-label={`Remove password for ${credential.origin}`}
                   onClick={() => void remove(credential.id)}
                 >
-                  <Trash2 />
+                  <DeleteIcon />
                 </NodexButton>
               </NodexSettingsRow>
             ))
@@ -952,7 +952,7 @@ export function BrowserContactInfoSettingsPage({
                     aria-label={`Remove ${contact.label}`}
                     onClick={() => void remove(contact.id)}
                   >
-                    <Trash2 />
+                    <DeleteIcon />
                   </NodexButton>
                 </NodexSettingsRow>
               ))
@@ -1010,7 +1010,7 @@ export function BrowserHistorySettingsPage({
       backSlot={backSlot}
       action={
         <NodexButton size="sm" variant="secondary" onClick={() => void clear()}>
-          <Trash2 />
+          <DeleteIcon />
           Clear
         </NodexButton>
       }
@@ -1040,7 +1040,7 @@ export function BrowserHistorySettingsPage({
                 aria-label={`Remove ${entry.title || entry.url} from history`}
                 onClick={() => void remove(entry.id)}
               >
-                <Trash2 />
+                <DeleteIcon />
               </NodexButton>
             </NodexSettingsRow>
           ))
@@ -1119,7 +1119,7 @@ export function BrowserExtensionsSettingsPage({
                   aria-label={`Remove ${extension.name}`}
                   onClick={() => void remove(extension.id)}
                 >
-                  <Trash2 />
+                  <DeleteIcon />
                 </NodexButton>
               </NodexSettingsRow>
             ))

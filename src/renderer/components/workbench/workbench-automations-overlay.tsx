@@ -18,14 +18,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AutomationActiveStatusIcon,
   AutomationArchiveIcon,
-  AutomationEditIcon,
+  DeleteIcon,
+  EditIcon,
   AutomationLoadingIcon,
   AutomationMoreIcon,
   AutomationPauseIcon,
   AutomationResumeIcon,
   AutomationRunNowIcon,
   AutomationTemplateColorIcon,
-  AutomationTrashIcon,
   AutomationsIcon,
   CompactChevronDownIcon,
   PanelRightVisibleIcon,
@@ -1890,7 +1890,7 @@ function AutomationListRow({
               onSelect(row.automation);
             }}
           >
-            <AutomationEditIcon className="icon-sm" />
+            <EditIcon className="icon-sm" />
           </AutomationRowAction>
           <AutomationRowAction
             label="Delete"
@@ -1901,7 +1901,7 @@ function AutomationListRow({
               onDeleteAutomation(row.automation);
             }}
           >
-            <AutomationTrashIcon className="icon-sm" />
+            <DeleteIcon className="icon-sm" />
           </AutomationRowAction>
         </span>
       </span>
@@ -4145,7 +4145,7 @@ export function WorkbenchAutomationsRouteShell({
                     danger
                     onClick={() => requestDeleteAutomationFromRow(selectedAutomation)}
                   >
-                    <AutomationTrashIcon className="icon-sm" />
+                    <DeleteIcon className="icon-sm" />
                   </AutomationDetailToolbarButton>
                 </>
               ) : null}

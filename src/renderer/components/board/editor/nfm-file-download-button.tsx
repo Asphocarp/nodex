@@ -10,7 +10,7 @@ import {
   useDictionary,
   useEditorState,
 } from "@blocknote/react";
-import { Download } from "@/components/shared/icons/generic-icons";
+import { DownloadIcon } from "@/components/shared/icons";
 import { toast } from "@/components/ui/toast";
 import {
   createImageDownloadFilename,
@@ -87,7 +87,7 @@ export function NfmFileDownloadButton() {
       className="bn-button"
       label={label}
       mainTooltip={label}
-      icon={<Download />}
+      icon={<DownloadIcon />}
       onClick={onClick}
     />
   );

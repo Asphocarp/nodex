@@ -32,8 +32,6 @@ import {
   ContactRound as LucideContactRound,
   Copy as LucideCopy,
   CornerDownLeft as LucideCornerDownLeft,
-  Download as LucideDownload,
-  DownloadIcon as LucideDownloadIcon,
   Ellipsis as LucideEllipsis,
   ExternalLink as LucideExternalLink,
   Eye as LucideEye,
@@ -51,7 +49,6 @@ import {
   History as LucideHistory,
   ImageIcon as LucideImageIcon,
   ImagePlus as LucideImagePlus,
-  ImageUp as LucideImageUp,
   ImagesIcon as LucideImagesIcon,
   Info as LucideInfo,
   KeyRound as LucideKeyRound,
@@ -80,7 +77,6 @@ import {
   PanelTopOpen as LucidePanelTopOpen,
   Paperclip as LucidePaperclip,
   Pause as LucidePause,
-  Pencil as LucidePencil,
   PencilLine as LucidePencilLine,
   PictureInPicture2 as LucidePictureInPicture2,
   Play as LucidePlay,
@@ -88,7 +84,6 @@ import {
   Printer as LucidePrinter,
   Puzzle as LucidePuzzle,
   RefreshCw as LucideRefreshCw,
-  Repeat2 as LucideRepeat2,
   Repeat2Icon as LucideRepeat2Icon,
   RotateCcw as LucideRotateCcw,
   RotateCw as LucideRotateCw,
@@ -113,7 +108,6 @@ import {
   Sun as LucideSun,
   Tags as LucideTags,
   TextCursorInput as LucideTextCursorInput,
-  Trash2 as LucideTrash2,
   TriangleAlert as LucideTriangleAlert,
   UploadCloud as LucideUploadCloud,
   UserRound as LucideUserRound,
@@ -282,14 +276,6 @@ export const CornerDownLeft: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucideCornerDownLeft,
   "CornerDownLeft",
 );
-export const Download: LucideIconType = /* @__PURE__ */ createGenericIcon(
-  LucideDownload,
-  "Download",
-);
-export const DownloadIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(
-  LucideDownloadIcon,
-  "DownloadIcon",
-);
 export const Ellipsis: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucideEllipsis,
   "Ellipsis",
@@ -340,7 +326,6 @@ export const ImagePlus: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucideImagePlus,
   "ImagePlus",
 );
-export const ImageUp: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImageUp, "ImageUp");
 export const ImagesIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucideImagesIcon,
   "ImagesIcon",
@@ -426,7 +411,6 @@ export const Paperclip: LucideIconType = /* @__PURE__ */ createGenericIcon(
   "Paperclip",
 );
 export const Pause: LucideIconType = /* @__PURE__ */ createGenericIcon(LucidePause, "Pause");
-export const Pencil: LucideIconType = /* @__PURE__ */ createGenericIcon(LucidePencil, "Pencil");
 export const PencilLine: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucidePencilLine,
   "PencilLine",
@@ -443,7 +427,6 @@ export const RefreshCw: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucideRefreshCw,
   "RefreshCw",
 );
-export const Repeat2: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideRepeat2, "Repeat2");
 export const Repeat2Icon: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucideRepeat2Icon,
   "Repeat2Icon",
@@ -519,7 +502,6 @@ export const TextCursorInput: LucideIconType = /* @__PURE__ */ createGenericIcon
   LucideTextCursorInput,
   "TextCursorInput",
 );
-export const Trash2: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideTrash2, "Trash2");
 export const TriangleAlert: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucideTriangleAlert,
   "TriangleAlert",

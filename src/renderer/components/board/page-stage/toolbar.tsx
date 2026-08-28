@@ -1,5 +1,5 @@
-import { ArrowLeft, Link2, Trash2 } from "@/components/shared/icons/generic-icons";
-import { CodeBracketsIcon, ProjectActionsIcon } from "@/components/shared/icons";
+import { ArrowLeft, Link2 } from "@/components/shared/icons/generic-icons";
+import { CodeBracketsIcon, DeleteIcon, ProjectActionsIcon } from "@/components/shared/icons";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -194,7 +194,7 @@ export function PageStageToolbar({
             <>
               <NodexDropdownSeparator />
               <NodexDropdownItem
-                leftSlot={<Trash2 className="icon-2xs shrink-0" />}
+                leftSlot={<DeleteIcon className="icon-2xs shrink-0" />}
                 onSelect={onDelete}
                 className="text-(--destructive) hover:!bg-(--destructive)/10 focus:!bg-(--destructive)/10"
               >

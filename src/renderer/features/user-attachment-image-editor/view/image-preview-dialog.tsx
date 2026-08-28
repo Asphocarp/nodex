@@ -3,9 +3,9 @@ import { LoaderCircleIcon } from "@/components/shared/icons/generic-icons";
 import {
   BrowserBackIcon,
   ImageZoomMinusIcon,
-  PlanDownloadIcon,
+  DownloadIcon,
+  EditIcon,
   PlusIcon,
-  ShortcutPencilIcon,
 } from "@/components/shared/icons";
 import {
   NodexDialog,
@@ -308,7 +308,7 @@ export function ImagePreviewDialog({
                   onOpenChange(false);
                 }}
               >
-                <ShortcutPencilIcon className="icon-xs" />
+                <EditIcon className="icon-xs" />
               </button>
             ) : null}
             <button
@@ -321,7 +321,7 @@ export function ImagePreviewDialog({
               {isDownloading ? (
                 <LoaderCircleIcon className="icon-xs animate-spin" aria-hidden="true" />
               ) : (
-                <PlanDownloadIcon className="icon-xs" />
+                <DownloadIcon className="icon-xs" />
               )}
             </button>
           </div>

@@ -4,11 +4,11 @@ import {
   ActivitySpinnerIcon,
   ChevronRightIcon,
   FileIcon,
-  PlanDownloadIcon,
+  DeleteIcon,
+  DownloadIcon,
+  EditIcon,
   PlusIcon,
-  RepeatIcon,
-  ShortcutPencilIcon,
-  ShortcutTrashIcon,
+  ReplaceIcon,
 } from "@/components/shared/icons";
 import { ColorfulFileResourceIcon } from "@/components/shared/file-resource-icon";
 import { DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME } from "@/components/database/property-value-chip";
@@ -686,7 +686,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
               }}
               aria-label={`Rename ${file.logicalPath}`}
             >
-              <ShortcutPencilIcon className="icon-2xs" />
+              <EditIcon className="icon-2xs" />
             </button>
           </NodexTooltip>
           <NodexTooltip tooltipContent="Replace">
@@ -696,7 +696,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
               onClick={() => void replaceFile(file)}
               aria-label={`Replace ${file.logicalPath}`}
             >
-              <RepeatIcon className="icon-2xs" />
+              <ReplaceIcon className="icon-2xs" />
             </button>
           </NodexTooltip>
           <NodexTooltip tooltipContent="Download">
@@ -712,7 +712,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
               }
               aria-label={`Download ${file.logicalPath}`}
             >
-              <PlanDownloadIcon className="icon-2xs" />
+              <DownloadIcon className="icon-2xs" />
             </button>
           </NodexTooltip>
           <NodexTooltip tooltipContent="Delete">
@@ -722,7 +722,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
               onClick={() => void deleteFile(file)}
               aria-label={`Delete ${file.logicalPath}`}
             >
-              <ShortcutTrashIcon className="icon-2xs" />
+              <DeleteIcon className="icon-2xs" />
             </button>
           </NodexTooltip>
         </div>
@@ -1061,7 +1061,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                         }).catch(() => toast.danger("Couldn’t save file"))
                       }
                     >
-                      <PlanDownloadIcon className="icon-xs" />
+                      <DownloadIcon className="icon-xs" />
                       Download
                     </NodexDialogAction>
                   </div>

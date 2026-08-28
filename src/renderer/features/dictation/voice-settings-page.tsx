@@ -12,8 +12,8 @@ import {
 import { ConfigValueDropdown } from "@/components/workbench/config-value-dropdown";
 import { TogglePill } from "@/components/workbench/workbench-settings-route-shell";
 import { toast } from "@/components/ui/toast";
-import { LinkToolbarCopyIcon, PlusIcon, ShortcutTrashIcon } from "@/components/shared/icons";
-import { DownloadIcon, Ellipsis } from "@/components/shared/icons/generic-icons";
+import { DeleteIcon, DownloadIcon, LinkToolbarCopyIcon, PlusIcon } from "@/components/shared/icons";
+import { Ellipsis } from "@/components/shared/icons/generic-icons";
 import { queryKeys } from "@/lib/query-keys";
 import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import {
@@ -520,7 +520,7 @@ export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string
                 );
               }}
             >
-              <ShortcutTrashIcon className="icon-2xs" />
+              <DeleteIcon className="icon-2xs" />
             </NodexButton>
           </div>
         ))}
@@ -616,7 +616,7 @@ export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string
                 <NodexDropdownItem
                   className="text-token-error-foreground"
                   disabled={recording.status === "recording"}
-                  leftSlot={<ShortcutTrashIcon className="icon-xs" />}
+                  leftSlot={<DeleteIcon className="icon-xs" />}
                   onSelect={() => void removeRecording(recording.id)}
                 >
                   Delete recording

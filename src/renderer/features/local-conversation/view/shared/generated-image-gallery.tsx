@@ -24,7 +24,7 @@ import {
   subscribeGeneratedImageLiveCollections,
   type GeneratedImageDescriptor,
 } from "@/features/user-attachment-image-editor";
-import { ImageCanvasViewIcon, ShortcutPencilIcon } from "@/components/shared/icons";
+import { EditIcon, ImageCanvasViewIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import type { ThreadGeneratedImageGalleryItemModel } from "../../thread-stage-types";
 import { useCodexConversationValue } from "../../local-conversation-store";
@@ -183,7 +183,7 @@ function GeneratedImageTile({
           className="pointer-events-none absolute bottom-2 left-2 z-10 flex h-6 cursor-interaction items-center gap-1 rounded-full bg-black/45 px-2 text-sm text-white opacity-0 shadow-sm backdrop-blur-[12px] group-focus-within/generated-image-preview:pointer-events-auto group-focus-within/generated-image-preview:opacity-100 group-hover/generated-image-preview:pointer-events-auto group-hover/generated-image-preview:opacity-100 hover:bg-black/60"
           onClick={onEdit}
         >
-          <ShortcutPencilIcon aria-hidden="true" className="size-3.5" />
+          <EditIcon aria-hidden="true" className="size-3.5" />
           Edit
         </button>
       ) : null}
