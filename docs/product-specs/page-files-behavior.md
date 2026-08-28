@@ -1,6 +1,7 @@
 # Page Files Behavior
 
-Status: Active  
+Status: Active
+
 Last Updated: 2026-08-28
 
 Page Files are exact-format resources owned directly by a Page. They are the
