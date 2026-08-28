@@ -263,7 +263,6 @@ function installComposerWindowApi(testInvoke?: TestInvoke): void {
               source: "user",
               filePath: "/tmp/project/.codex/config.toml",
             },
-            customDescription: null,
           };
         case "branch-metadata":
           return {
@@ -4075,7 +4074,7 @@ describe("ThreadComposer speed menu", () => {
       return undefined;
     });
 
-    const permissionTrigger = view.getByLabelText("Permission mode");
+    const permissionTrigger = view.getByLabelText("Change permissions");
     const contextTrigger = view.getByLabelText(/Context window/);
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
@@ -4860,7 +4859,7 @@ describe("ThreadComposer speed menu", () => {
 
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
     const addContextButton = view.getByLabelText("Add files and more");
-    const permissionTrigger = view.getByLabelText("Permission mode");
+    const permissionTrigger = view.getByLabelText("Change permissions");
     const planButton = view.getByLabelText("Plan");
     const planAccessoryDivider = formFooter?.querySelector(
       '[data-composer-footer-accessory-divider="true"]',

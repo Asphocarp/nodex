@@ -350,7 +350,6 @@ const DEFAULT_PERMISSION_STATE: CodexPermissionState = {
     source: "none",
     filePath: null,
   },
-  customDescription: "The agent will use its built-in permission defaults.",
 };
 const EMPTY_CONVERSATION_SUMMARY_FIELDS = {
   threadId: null,

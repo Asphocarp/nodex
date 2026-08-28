@@ -443,7 +443,6 @@ async function renderNewThreadHome(overrides?: {
           sandbox: { type: "dangerFullAccess" },
           autoReviewAvailable: false,
           configTarget: null,
-          customDescription: null,
         };
       }
       if (channel === "codex:composer-plugins:list") {

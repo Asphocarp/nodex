@@ -28,7 +28,6 @@ it.effect("registers the permission ingress against its owning module", () =>
       resolveAutomation: () => Effect.die("unused"),
       setMode: () => Effect.die("unused"),
       setConfigValue: () => Effect.die("unused"),
-      customDescription: () => Effect.die("unused"),
     });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
@@ -49,7 +48,6 @@ it.effect("registers the permission ingress against its owning module", () =>
 
     assert.deepEqual([...channels].sort(), [
       "codex:permission:config-value:set",
-      "codex:permission:custom-description:get",
       "codex:permission:mode:get",
       "codex:permission:mode:set",
       "codex:permission:state:get",

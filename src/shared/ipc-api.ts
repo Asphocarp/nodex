@@ -2276,10 +2276,6 @@ export interface IpcApi {
     args: [projectId: string | null, keyPath: string, value: unknown];
     result: CodexPermissionState;
   };
-  "codex:permission:custom-description:get": {
-    args: [projectId: string | null];
-    result: string;
-  };
 }
 
 export interface IpcEvents {

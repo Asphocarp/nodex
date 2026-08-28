@@ -13,8 +13,7 @@ type PermissionChannel =
   | "codex:permission:mode:set"
   | "codex:permission:mode:get"
   | "codex:permission:state:get"
-  | "codex:permission:config-value:set"
-  | "codex:permission:custom-description:get";
+  | "codex:permission:config-value:set";
 
 export class CodexPermissionsIpcError extends Schema.TaggedError<CodexPermissionsIpcError>()(
   "CodexPermissionsIpcError",
@@ -61,9 +60,6 @@ export const live: Layer.Layer<
     yield* handle("codex:permission:state:get", (_, projectId) => permissions.snapshot(projectId));
     yield* handle("codex:permission:config-value:set", (_, projectId, keyPath, value) =>
       permissions.setConfigValue(projectId, keyPath, value),
-    );
-    yield* handle("codex:permission:custom-description:get", (_, projectId) =>
-      permissions.customDescription(projectId),
     );
   }),
 );

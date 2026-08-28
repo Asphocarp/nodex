@@ -2888,7 +2888,6 @@ export interface CodexPermissionState {
   sandbox: CodexSandboxPolicy | null;
   autoReviewAvailable: boolean;
   configTarget: CodexPermissionConfigTarget;
-  customDescription: string | null;
 }
 
 export type CodexTurnStatus = CodexAppServerTurnStatus;

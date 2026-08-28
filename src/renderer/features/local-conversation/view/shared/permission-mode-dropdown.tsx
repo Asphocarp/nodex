@@ -1,7 +1,7 @@
+import { useRef } from "react";
 import type { CodexPermissionMode } from "../../../../lib/types";
 import {
-  ChevronDownIcon,
-  SettingsAgentIcon,
+  PermissionDefaultIcon,
   SettingsGeneralIcon,
   PermissionAskForApprovalIcon,
   PermissionFullAccessIcon,
@@ -14,17 +14,23 @@ import {
   NodexSettingsDropdownTrigger,
 } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
+import { appScope, useScopeHandle } from "@/lib/maitai";
+import { openModal } from "@/lib/modal-registry";
 import {
   COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME,
   COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME,
 } from "./composer-footer-controls";
+import {
+  FullAccessPermissionConfirmationDialog,
+  PERMISSIONS_LEARN_MORE_URL,
+} from "./full-access-permission-confirmation-dialog";
 
 type PermissionModeDropdownItem = {
   value: CodexPermissionMode;
   triggerLabel: string;
   optionLabel: string;
   description: string;
-  disabledDescription?: string;
+  disabledTooltip?: string;
 };
 
 export const FULL_ACCESS_PERMISSION_DESCRIPTION =
@@ -42,14 +48,14 @@ const PERMISSION_MODE_ITEMS: PermissionModeDropdownItem[] = [
     triggerLabel: "Approve for me",
     optionLabel: "Approve for me",
     description: "Only ask for actions detected as potentially unsafe",
-    disabledDescription: "Requires default sandboxed permissions in this workspace",
+    disabledTooltip: "Requires default sandboxed permissions in this workspace",
   },
   {
     value: "full-access",
     triggerLabel: "Full access",
     optionLabel: "Full access",
     description: FULL_ACCESS_PERMISSION_DESCRIPTION,
-    disabledDescription: "Disabled by requirements.toml",
+    disabledTooltip: "Disabled by requirements.toml",
   },
   {
     value: "custom",
@@ -58,9 +64,6 @@ const PERMISSION_MODE_ITEMS: PermissionModeDropdownItem[] = [
     description: "Uses permissions defined in config.toml",
   },
 ];
-
-const PERMISSIONS_LEARN_MORE_URL =
-  "https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it";
 
 const FULL_ACCESS_ACCENT_CLASS_NAME = "text-token-editor-warning-foreground";
 
@@ -82,7 +85,7 @@ function PermissionModeMenuIcon({
   className?: string;
 }) {
   if (mode === "auto") return <PermissionAskForApprovalIcon className={className} />;
-  if (mode === "guardian-approvals") return <SettingsAgentIcon className={className} />;
+  if (mode === "guardian-approvals") return <PermissionDefaultIcon className={className} />;
   if (mode === "full-access") return <PermissionFullAccessIcon className={className} />;
   return <SettingsGeneralIcon className={className} />;
 }
@@ -105,6 +108,7 @@ function PermissionModeOption({
   return (
     <NodexDropdownItem
       disabled={disabled}
+      focusableWhenDisabled
       onSelect={(event) => {
         if (disabled) {
           return;
@@ -115,14 +119,13 @@ function PermissionModeOption({
           event.preventDefault();
         }
       }}
-      leftSlot={<PermissionModeMenuIcon mode={item.value} className={cn("icon-sm", accentClass)} />}
+      leftSlot={<PermissionModeMenuIcon mode={item.value} className={cn("size-5!", accentClass)} />}
       rightSlot={selected ? <NodexDropdownSelectedIcon className={accentClass} /> : null}
-      subText={
-        <span className={accentClass}>
-          {disabled && item.disabledDescription ? item.disabledDescription : description}
-        </span>
-      }
+      subText={<span className={accentClass}>{description}</span>}
+      tooltipText={disabled ? item.disabledTooltip : undefined}
       allowWrap
+      subTextAllowWrap
+      className="[&>div]:gap-3 [&>div>span:nth-child(2)>span]:gap-0"
     >
       <span className={accentClass}>{item.optionLabel}</span>
     </NodexDropdownItem>
@@ -131,7 +134,6 @@ function PermissionModeOption({
 
 export function PermissionModeDropdown({
   selectedMode,
-  customDescription,
   availableModes,
   autoReviewAvailable = false,
   triggerVariant = "label",
@@ -139,13 +141,14 @@ export function PermissionModeDropdown({
   onSelect,
 }: {
   selectedMode: CodexPermissionMode;
-  customDescription: string | null;
   availableModes?: CodexPermissionMode[];
   autoReviewAvailable?: boolean;
   triggerVariant?: "label" | "icon";
   triggerStyle?: "composer" | "settings";
   onSelect: (mode: CodexPermissionMode) => void;
 }) {
+  const appHandle = useScopeHandle(appScope);
+  const pendingFullAccessConfirmationRef = useRef(false);
   const allowedModes = new Set(availableModes ?? ["auto", "full-access", "custom"]);
   const currentModeAccentClass = resolvePermissionModeAccentClass(selectedMode);
   const triggerLabel = formatPermissionModeLabel(selectedMode);
@@ -177,7 +180,7 @@ export function PermissionModeDropdown({
         ) : (
           <button
             type="button"
-            aria-label="Permission mode"
+            aria-label="Change permissions"
             className={
               triggerVariant === "icon"
                 ? COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME
@@ -189,33 +192,36 @@ export function PermissionModeDropdown({
               className={cn("icon-xs shrink-0", currentModeAccentClass)}
             />
             {triggerVariant === "label" ? (
-              <>
-                <span
-                  className={cn(
-                    "max-w-40 truncate whitespace-nowrap text-left",
-                    currentModeAccentClass,
-                  )}
-                >
-                  {triggerLabel}
-                </span>
-                <ChevronDownIcon
-                  className={cn(
-                    "icon-2xs shrink-0",
-                    currentModeAccentClass ?? "text-token-input-placeholder-foreground",
-                  )}
-                />
-              </>
+              <span
+                className={cn(
+                  "max-w-40 truncate whitespace-nowrap text-left",
+                  currentModeAccentClass,
+                )}
+              >
+                {triggerLabel}
+              </span>
             ) : null}
           </button>
         )
       }
+      triggerTooltipContent={triggerStyle === "composer" ? "Change permissions" : undefined}
       side={triggerStyle === "settings" ? "bottom" : "top"}
       align={triggerStyle === "settings" ? "end" : "start"}
-      contentWidth="menu"
+      contentClassName="w-max"
+      finalFocus={() => {
+        if (!pendingFullAccessConfirmationRef.current) return true;
+        pendingFullAccessConfirmationRef.current = false;
+        openModal(appHandle, FullAccessPermissionConfirmationDialog, {
+          onConfirm: () => onSelect("full-access"),
+        });
+        return false;
+      }}
     >
       <NodexDropdownTitle>
-        <div className="flex items-center justify-between gap-8">
-          <span>How should Agent actions be approved?</span>
+        <div className="flex w-full min-w-0 items-start gap-4">
+          <span className="min-w-0 flex-1 whitespace-normal">
+            How should Nodex actions be approved?
+          </span>
           <button
             type="button"
             className="cursor-interaction underline underline-offset-2 hover:text-token-description-foreground"
@@ -231,10 +237,7 @@ export function PermissionModeDropdown({
       </NodexDropdownTitle>
       {PERMISSION_MODE_ITEMS.filter(
         (item) =>
-          item.value === "custom" ||
-          item.value === "guardian-approvals" ||
-          allowedModes.has(item.value) ||
-          item.value === selectedMode,
+          item.value !== "custom" || allowedModes.has("custom") || selectedMode === "custom",
       ).map((item) => {
         const autoReviewDisabled =
           item.value === "guardian-approvals" &&
@@ -249,14 +252,16 @@ export function PermissionModeDropdown({
           <PermissionModeOption
             key={item.value}
             item={item}
-            description={
-              item.value === "custom" ? (customDescription ?? item.description) : item.description
-            }
+            description={item.description}
             disabled={disabled}
             selected={item.value === selectedMode}
             onSelect={() => {
               if (disabled) {
                 return false;
+              }
+              if (item.value === "full-access") {
+                pendingFullAccessConfirmationRef.current = true;
+                return true;
               }
               onSelect(item.value);
               return true;
