@@ -106,8 +106,8 @@ const source: DataSourceDescriptorV2 = {
       valueType: "select",
       config: {
         options: [
-          { id: "draft", name: "Draft" },
-          { id: "done", name: "Done" },
+          { id: "draft", name: "Draft", color: "gray" },
+          { id: "done", name: "Done", color: "green" },
         ],
       },
       rankKey: "a",
@@ -122,7 +122,7 @@ const source: DataSourceDescriptorV2 = {
       name: "Priority",
       ...testPropertySemantics("select", 1),
       valueType: "select",
-      config: { options: [{ id: "high", name: "High" }] },
+      config: { options: [{ id: "high", name: "High", color: "red" }] },
       rankKey: "b",
       lifecycle: "active",
       revision: 1,
@@ -135,7 +135,7 @@ const source: DataSourceDescriptorV2 = {
       name: "Tags",
       ...testPropertySemantics("multi_select", 1),
       valueType: "multi_select",
-      config: { options: [{ id: "o_AAAAAAAA", name: "Agent" }] },
+      config: { options: [{ id: "o_AAAAAAAA", name: "Agent", color: "purple" }] },
       rankKey: "c",
       lifecycle: "active",
       revision: 1,
@@ -180,7 +180,7 @@ const overflowSource: DataSourceDescriptorV2 = {
       const template = source.properties[index % source.properties.length]!;
       return {
         ...template,
-        propertyId: parseDataSourcePropertyId(`overflow_${index}`),
+        propertyId: parseDataSourcePropertyId(`p_extra00${index}`),
         name: `Additional ${template.name} ${index + 1}`,
         rankKey: `overflow-${index}`,
       };

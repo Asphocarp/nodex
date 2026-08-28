@@ -18,12 +18,12 @@ import { parsePageFileSource } from "../../../../shared/page-files";
 import { usePageFilePlacementRuntime, type PageFilePlacementRuntime } from "./page-file-runtime";
 import { InlineReferenceVisual } from "../inline-reference-visual";
 
-type AttachmentPreview =
+export type AttachmentPreview =
   | { type: "text"; content: string; truncated: boolean }
   | { type: "folder"; manifest: ManagedFolderManifest }
   | null;
 
-interface AttachmentProps {
+export interface AttachmentProps {
   kind: "text" | "file" | "folder";
   mode: "materialized" | "link";
   source: string;
@@ -152,6 +152,7 @@ function AttachmentPopover({
       : "Linked to the original";
   const hasOriginal =
     typeof props.origin === "string" && props.origin.length > 0 && props.origin !== props.source;
+  const previewAvailable = canPreviewAttachment(props, pageFileRuntime);
 
   const resolvePrimaryPath = useCallback(async (): Promise<string | null> => {
     if (props.mode === "link") return props.source || null;
@@ -184,75 +185,126 @@ function AttachmentPopover({
   }, [openPath, props.origin]);
 
   return (
-    <div className="w-[min(32rem,calc(100vw-2rem))] p-1 text-sm">
-      <div className="flex items-start gap-2.5">
-        <div className="mt-0.5 rounded-lg bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] p-1.5 text-[color-mix(in_srgb,var(--foreground)_76%,transparent)]">
-          <AttachmentResourceIcon
-            kind={props.kind}
-            name={props.name}
-            mimeType={props.mimeType}
-            className="size-3.5"
-          />
-        </div>
+    <AttachmentPopoverView
+      attachment={props}
+      preview={preview}
+      previewAvailable={previewAvailable}
+      previewLoading={previewLoading}
+      isOwnedFile={isOwnedFile}
+      stateLabel={stateLabel}
+      sizeLabel={sizeLabel}
+      onPrimaryOpen={onPrimaryOpen}
+      onReveal={isOwnedFile ? null : handleReveal}
+      onCopyPath={handleCopyPath}
+      onOpenOriginal={hasOriginal ? handleOpenOriginal : null}
+    />
+  );
+}
+
+export function AttachmentPopoverView({
+  attachment,
+  preview,
+  previewAvailable,
+  previewLoading,
+  isOwnedFile,
+  stateLabel,
+  sizeLabel,
+  onPrimaryOpen,
+  onReveal,
+  onCopyPath,
+  onOpenOriginal,
+}: {
+  readonly attachment: AttachmentProps;
+  readonly preview: AttachmentPreview;
+  readonly previewAvailable: boolean;
+  readonly previewLoading: boolean;
+  readonly isOwnedFile: boolean;
+  readonly stateLabel: string;
+  readonly sizeLabel: string;
+  readonly onPrimaryOpen: () => Promise<void>;
+  readonly onReveal: (() => Promise<void>) | null;
+  readonly onCopyPath: () => Promise<void>;
+  readonly onOpenOriginal: (() => Promise<void>) | null;
+}) {
+  const hasOriginal =
+    typeof attachment.origin === "string" &&
+    attachment.origin.length > 0 &&
+    attachment.origin !== attachment.source;
+
+  return (
+    <div className="w-[min(32rem,calc(100vw-2rem))] p-2 text-sm">
+      <header className="flex min-w-0 items-center gap-2.5 px-1 pt-0.5">
+        <AttachmentResourceIcon
+          kind={attachment.kind}
+          name={attachment.name}
+          mimeType={attachment.mimeType}
+          className="size-5 shrink-0"
+        />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-[var(--foreground)]">
-            {props.name || "Untitled attachment"}
+          <div className="truncate text-sm font-medium text-token-text-primary">
+            {attachment.name || "Untitled attachment"}
           </div>
-          <div className="mt-0.5 text-xs text-[color-mix(in_srgb,var(--foreground)_54%,transparent)]">
-            {props.kind}
-            {sizeLabel ? ` • ${sizeLabel}` : ""} • {stateLabel}
+          <div className="mt-0.5 text-xs text-token-description-foreground">
+            {attachment.kind}
+            {sizeLabel ? ` · ${sizeLabel}` : ""} · {stateLabel}
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="mt-3 space-y-1 text-xs text-[color-mix(in_srgb,var(--foreground)_58%,transparent)]">
-        <div className="truncate">Source: {props.source}</div>
-        {hasOriginal && <div className="truncate">Original: {props.origin}</div>}
-      </div>
+      <dl className="mt-3 grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-1 border-t-[0.5px] border-token-border px-1 pt-3 text-xs">
+        <dt className="text-token-description-foreground">Source</dt>
+        <dd className="truncate font-mono text-token-text-secondary">{attachment.source}</dd>
+        {hasOriginal ? (
+          <>
+            <dt className="text-token-description-foreground">Original</dt>
+            <dd className="truncate font-mono text-token-text-secondary">{attachment.origin}</dd>
+          </>
+        ) : null}
+      </dl>
 
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      <div className="mt-3 flex flex-wrap gap-1.5 px-1">
         <AttachmentActionButton
           label={isOwnedFile ? "Save" : "Open"}
           icon={ArrowUpRight}
           onClick={onPrimaryOpen}
         />
-        {!isOwnedFile && (
-          <AttachmentActionButton label="Reveal" icon={FolderOpenIcon} onClick={handleReveal} />
-        )}
+        {onReveal ? (
+          <AttachmentActionButton label="Reveal" icon={FolderOpenIcon} onClick={onReveal} />
+        ) : null}
         <AttachmentActionButton
           label={isOwnedFile ? "Copy reference" : "Copy path"}
           icon={Copy}
-          onClick={handleCopyPath}
+          onClick={onCopyPath}
         />
-        {hasOriginal && (
-          <AttachmentActionButton label="Open original" icon={Link2} onClick={handleOpenOriginal} />
-        )}
+        {onOpenOriginal ? (
+          <AttachmentActionButton label="Open original" icon={Link2} onClick={onOpenOriginal} />
+        ) : null}
       </div>
 
-      {canPreviewAttachment(props, pageFileRuntime) && (
-        <div className="mt-3 overflow-hidden rounded-lg bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_8%,transparent)]">
-          {previewLoading && (
-            <div className="px-3 py-2 text-xs text-[color-mix(in_srgb,var(--foreground)_54%,transparent)]">
+      {previewAvailable ? (
+        <div className="mt-3 overflow-hidden rounded-lg bg-transparent ring-[0.5px] ring-inset ring-token-border">
+          {previewLoading ? (
+            <div className="px-3 py-2 text-xs text-token-description-foreground">
               Loading preview...
             </div>
-          )}
+          ) : null}
 
-          {!previewLoading && preview?.type === "text" && (
+          {!previewLoading && preview?.type === "text" ? (
             <div className="px-3 py-2">
-              <pre className="scrollbar-token max-h-64 overflow-auto whitespace-pre-wrap break-words font-[var(--font-mono)] text-[12px] leading-5 text-[color-mix(in_srgb,var(--foreground)_88%,transparent)]">
+              <pre className="scrollbar-token max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-token-text-primary">
                 {preview.content}
               </pre>
-              {preview.truncated && (
-                <p className="mt-2 text-[11px] text-[color-mix(in_srgb,var(--foreground)_50%,transparent)]">
+              {preview.truncated ? (
+                <p className="mt-2 text-[11px] text-token-description-foreground">
                   Preview limited to 200 lines or 64 KiB.
                 </p>
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
 
-          {!previewLoading && preview?.type === "folder" && (
+          {!previewLoading && preview?.type === "folder" ? (
             <div className="px-3 py-2">
-              <div className="max-h-64 space-y-1 overflow-auto font-[var(--font-mono)] text-[12px] leading-5 text-[color-mix(in_srgb,var(--foreground)_84%,transparent)]">
+              <div className="max-h-64 space-y-1 overflow-auto font-mono text-[12px] leading-5 text-token-text-secondary">
                 {preview.manifest.entries.map((entry) => (
                   <div key={`${entry.kind}:${entry.path}`} className="truncate">
                     {entry.kind === "folder" ? "📁" : "·"} {entry.path}
@@ -262,29 +314,29 @@ function AttachmentPopover({
                   </div>
                 ))}
               </div>
-              {preview.manifest.truncated && (
-                <p className="mt-2 text-[11px] text-[color-mix(in_srgb,var(--foreground)_50%,transparent)]">
+              {preview.manifest.truncated ? (
+                <p className="mt-2 text-[11px] text-token-description-foreground">
                   Snapshot limited to {preview.manifest.maxEntries} entries and{" "}
                   {preview.manifest.maxDepth} levels.
                 </p>
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
-      {!canPreviewAttachment(props, pageFileRuntime) && props.mode === "link" && (
-        <p className="mt-3 text-xs text-[color-mix(in_srgb,var(--foreground)_52%,transparent)]">
+      {!previewAvailable && attachment.mode === "link" ? (
+        <p className="mt-3 px-1 text-xs text-token-description-foreground">
           This attachment keeps a link to the original location instead of copying its contents into
           Nodex.
         </p>
-      )}
+      ) : null}
 
-      {!canPreviewAttachment(props, pageFileRuntime) && props.mode === "materialized" && (
-        <p className="mt-3 text-xs text-[color-mix(in_srgb,var(--foreground)_52%,transparent)]">
+      {!previewAvailable && attachment.mode === "materialized" ? (
+        <p className="mt-3 px-1 text-xs text-token-description-foreground">
           This saved attachment doesn&apos;t have an inline preview.
         </p>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -301,7 +353,7 @@ function AttachmentActionButton({
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] px-2.5 py-1 text-xs text-[color-mix(in_srgb,var(--foreground)_72%,transparent)] hover:bg-[color-mix(in_srgb,var(--foreground)_10%,transparent)] hover:text-[var(--foreground)]"
+      className="inline-flex h-7 items-center gap-1.5 rounded-md bg-transparent px-2 text-xs text-token-text-secondary ring-[0.5px] ring-inset ring-token-border hover:bg-token-foreground/5 hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus"
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();

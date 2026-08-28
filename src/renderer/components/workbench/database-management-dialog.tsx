@@ -41,6 +41,7 @@ import {
   DATA_SOURCE_PROPERTY_TYPE_LABELS,
   dataSourcePropertyTypeIcon,
 } from "../database/data-source-property-presentation";
+import { databasePropertyOptionDotColor } from "../database/property-value-chip";
 
 export interface CreateDatabasePropertyDraft {
   readonly dataSourceId: string;
@@ -199,8 +200,8 @@ export function DatabaseManagementSurface({
   }, [activeProperties, pendingDeletePropertyId]);
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] max-sm:grid-cols-1">
-      <aside className="flex min-h-0 flex-col border-r-[0.5px] border-token-border bg-token-foreground/3 max-sm:hidden">
+    <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] bg-token-main-surface-primary max-sm:grid-cols-1">
+      <aside className="flex min-h-0 flex-col border-r-[0.5px] border-token-border bg-token-side-bar-background max-sm:hidden">
         <div className="px-3 pb-3 pt-4">
           <h2 className="flex items-center gap-2 text-base font-medium text-token-text-primary">
             <DatabaseIcon className="size-4 shrink-0 text-token-description-foreground" />
@@ -226,7 +227,7 @@ export function DatabaseManagementSurface({
                   "mb-0.5 flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm outline-none",
                   "focus-visible:ring-2 focus-visible:ring-token-focus",
                   selected
-                    ? "bg-token-foreground/8 text-token-text-primary"
+                    ? "bg-transparent text-token-text-primary ring-[0.5px] ring-inset ring-token-border-heavy"
                     : "text-token-text-secondary hover:bg-token-foreground/5 hover:text-token-text-primary",
                 )}
               >
@@ -241,7 +242,7 @@ export function DatabaseManagementSurface({
         </nav>
       </aside>
 
-      <main className="min-h-0 overflow-y-auto px-5 pb-6 pt-4 max-sm:px-3">
+      <main className="min-h-0 overflow-y-auto bg-token-main-surface-primary px-5 pb-6 pt-4 max-sm:px-3">
         {descriptor && source ? (
           <>
             <header className="mb-6 pr-9">
@@ -249,7 +250,7 @@ export function DatabaseManagementSurface({
                 <h2 className="truncate text-lg font-medium text-token-text-primary">
                   {descriptor.database.name}
                 </h2>
-                <span className="shrink-0 rounded-md bg-token-foreground/6 px-1.5 py-0.5 text-[10px] text-token-description-foreground">
+                <span className="shrink-0 rounded-md bg-transparent px-1.5 py-0.5 text-[10px] text-token-description-foreground ring-[0.5px] ring-inset ring-token-border">
                   {source.dataSource.name}
                 </span>
               </div>
@@ -338,8 +339,18 @@ export function DatabaseManagementSurface({
                           {options.map((option) => (
                             <span
                               key={option.id}
-                              className="group/option inline-flex h-6 items-center gap-1 rounded-md bg-token-foreground/6 pl-2 pr-1 text-xs text-token-text-secondary"
+                              className="group/option inline-flex h-6 items-center gap-1.5 rounded-md bg-transparent pl-1.5 pr-1 text-xs text-token-text-secondary ring-[0.5px] ring-inset ring-token-border"
                             >
+                              <span
+                                aria-hidden="true"
+                                className="size-1.5 shrink-0 rounded-full"
+                                style={{
+                                  backgroundColor: databasePropertyOptionDotColor(
+                                    option.color,
+                                    option.id,
+                                  ),
+                                }}
+                              />
                               {option.name}
                               <button
                                 type="button"
@@ -431,8 +442,8 @@ export function DatabaseManagementSurface({
                     disabled={busy}
                     onValueChange={(value) => setPropertyType(value as DatabasePropertyValueType)}
                     options={PROPERTY_TYPES}
-                    chrome="transparent"
-                    className="h-8 min-w-28"
+                    triggerStyle="settings"
+                    className="min-w-28"
                   />
                   {propertyType === "relation" ? (
                     <DatabaseViewSelect
@@ -464,8 +475,8 @@ export function DatabaseManagementSurface({
                             label: database.database.name,
                           })),
                       )}
-                      chrome="transparent"
-                      className="h-8 max-w-40"
+                      triggerStyle="settings"
+                      className="max-w-40"
                     />
                   ) : null}
                   <NodexButton
@@ -563,8 +574,8 @@ export function DatabaseManagementSurface({
                             })
                           }
                           options={VIEW_LAYOUTS}
-                          chrome="transparent"
-                          className="h-8 w-24"
+                          triggerStyle="settings"
+                          className="w-24"
                         />
                         <NodexIconButton
                           icon={SlidersHorizontal}
@@ -646,7 +657,7 @@ export function DatabaseManagementSurface({
                         )}
                       </div>
                       {expanded ? (
-                        <div className="mb-2 bg-token-foreground/3 px-2">
+                        <div className="mb-2 rounded-lg bg-transparent px-2 ring-[0.5px] ring-inset ring-token-border">
                           <DatabaseViewConfigEditor
                             config={draft.config}
                             layout={draft.defaultLayout}
@@ -691,8 +702,8 @@ export function DatabaseManagementSurface({
                     disabled={busy}
                     onValueChange={(value) => setViewLayout(value as DatabaseViewLayout)}
                     options={VIEW_LAYOUTS}
-                    chrome="transparent"
-                    className="h-8 w-24"
+                    triggerStyle="settings"
+                    className="w-24"
                   />
                   <NodexButton
                     type="submit"
