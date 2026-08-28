@@ -78,8 +78,6 @@
 
 @utility inline-tinted-chip-interactive {
   cursor: var(--cursor-interaction, pointer);
-  transition-property: background-color, color;
-  transition-duration: 100ms;
 
   &:hover {
     --inline-tinted-chip-fill-strength: var(--inline-tinted-chip-hover-strength);

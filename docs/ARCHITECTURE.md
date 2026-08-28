@@ -81,8 +81,8 @@ existing Page ownership forest instead of flattening into their parent. Core is
 the only publication, authorization, metadata-mutation, copy/transfer, backup,
 restore, and garbage-collection authority. Electron and CLI may stream or save
 explicit user-selected bytes but never receive the physical blob locator. See
-[Page Files Behavior](docs/product-specs/page-files-behavior.md) and
-[ADR 0051](docs/adr/0051-page-owned-files-and-immutable-bytes.md).
+[Page Files Behavior](product-specs/page-files-behavior.md) and
+[ADR 0051](adr/0051-page-owned-files-and-immutable-bytes.md).
 
 A top-level Canvas is authorized by an explicit generic Canvas resource grant. An embedded Canvas inherits the host Page authorization path and has no active direct Canvas grant. Moving between Library and Page placement changes that grant state atomically with the host shell and never rehomes content.
 

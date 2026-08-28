@@ -75,7 +75,6 @@ import {
   PanelRightClose as LucidePanelRightClose,
   PanelRightOpen as LucidePanelRightOpen,
   PanelTopOpen as LucidePanelTopOpen,
-  Paperclip as LucidePaperclip,
   Pause as LucidePause,
   PencilLine as LucidePencilLine,
   PictureInPicture2 as LucidePictureInPicture2,
@@ -405,10 +404,6 @@ export const PanelRightOpen: LucideIconType = /* @__PURE__ */ createGenericIcon(
 export const PanelTopOpen: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucidePanelTopOpen,
   "PanelTopOpen",
-);
-export const Paperclip: LucideIconType = /* @__PURE__ */ createGenericIcon(
-  LucidePaperclip,
-  "Paperclip",
 );
 export const Pause: LucideIconType = /* @__PURE__ */ createGenericIcon(LucidePause, "Pause");
 export const PencilLine: LucideIconType = /* @__PURE__ */ createGenericIcon(

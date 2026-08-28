@@ -424,11 +424,10 @@ describe("NFM Code Block surface in Chromium", () => {
     expect(codeBlockViewState.getWrapped(originalId)).toBe(true);
   });
 
-  test("mounts one Action Bar for hover, changes language, and hides it while dragging", async () => {
+  test("mounts one Action Bar for focus or hover, changes language, and hides it while dragging", async () => {
     const { editor, host } = await mountCodeBlock("code-actions");
     const surface = host.querySelector<HTMLElement>("[data-nfm-code-block-surface]")!;
     expect(editor.domElement?.contains(surface)).toBe(true);
-    expect(screen.queryByRole("toolbar", { name: "Code block action bar" })).toBeNull();
 
     await act(async () => {
       surface.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, composed: true }));

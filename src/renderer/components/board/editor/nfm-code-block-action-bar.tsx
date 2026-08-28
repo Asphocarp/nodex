@@ -81,9 +81,11 @@ function MermaidPreviewModePicker({
   readonly onValueChange: (value: MermaidCodePreviewMode) => void;
 }) {
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const CurrentIcon =
     MERMAID_PREVIEW_OPTIONS.find((option) => option.value === value)?.icon ?? CodeAndPreviewIcon;
   const choose = (nextValue: MermaidCodePreviewMode) => {
+    if (nextValue === "preview") triggerRef.current?.focus();
     onValueChange(nextValue);
     onOpenChange(false);
   };
@@ -98,6 +100,7 @@ function MermaidPreviewModePicker({
   const trigger = (
     <NodexPopoverTrigger>
       <button
+        ref={triggerRef}
         type="button"
         aria-label="Open language preview format dropdown"
         className={codeBlockActionButtonClassName}

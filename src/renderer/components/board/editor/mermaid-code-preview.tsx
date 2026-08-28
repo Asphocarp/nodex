@@ -37,7 +37,7 @@ export function MermaidDiagramModal({ source, svg, theme, onClose }: MermaidDiag
           className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-token-main-surface-primary p-10 [&_svg]:max-h-full [&_svg]:max-w-full"
           dangerouslySetInnerHTML={{ __html: svg }}
         />
-        <div className="border-t border-token-border px-4 py-2 font-mono text-xs text-token-text-tertiary">
+        <div className="border-t-[0.5px] border-token-border px-4 py-2 font-mono text-xs text-token-text-tertiary">
           {source.split("\n")[0] || "Mermaid"}
         </div>
       </NodexDialogContent>

@@ -85,7 +85,7 @@ function NfmCodeBlockSurface({
         <MermaidCodePreview
           source={code}
           theme={theme}
-          className={cn(showCode && "mt-3 border-t border-[var(--border)]")}
+          className={cn(showCode && "mt-3 border-t-[0.5px] border-[var(--border)]")}
         />
       ) : null}
     </figure>

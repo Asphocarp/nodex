@@ -86,7 +86,7 @@ export function FullAccessPermissionConfirmationDialog({
                 return (
                   <div
                     key={capability.title}
-                    className="flex items-center gap-3 border-b border-token-border/70 py-2 first:pt-0 last:border-b-0 last:pb-0"
+                    className="flex items-center gap-3 border-b-[0.5px] border-token-border/70 py-2 first:pt-0 last:border-b-0 last:pb-0"
                   >
                     <CapabilityIcon />
                     <div className="min-w-0">

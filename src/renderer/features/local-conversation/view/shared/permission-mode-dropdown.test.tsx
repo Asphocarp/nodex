@@ -92,9 +92,10 @@ describe("permission mode dropdown", () => {
       availableModes: ["auto", "full-access"],
       autoReviewAvailable: false,
     });
+    expect(currentCustomView.getByText("Custom (config.toml)")).toBeTruthy();
     await openPermissionMenu(currentCustomView);
 
-    expect(currentCustomView.getByText("Custom (config.toml)")).toBeTruthy();
+    expect(currentCustomView.getAllByText("Custom (config.toml)")).toHaveLength(2);
     expect(currentCustomView.getByText("Uses permissions defined in config.toml")).toBeTruthy();
   });
 

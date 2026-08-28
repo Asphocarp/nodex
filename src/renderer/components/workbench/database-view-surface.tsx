@@ -1854,7 +1854,7 @@ function BoardDatabaseViewSurface({
                                     type="button"
                                     data-page-create-trigger="footer"
                                     data-page-create-column-id={column.groupKey}
-                                    className="flex w-full items-center gap-2.25 rounded-md border px-2.5 py-2.5 text-sm outline-none hover:bg-[color-mix(in_srgb,var(--column-accent,#888)_15%,var(--card))] focus-visible:ring-2 focus-visible:ring-token-focus"
+                                    className="flex w-full items-center gap-2.25 rounded-md border-[0.5px] px-2.5 py-2.5 text-sm outline-none hover:bg-[color-mix(in_srgb,var(--column-accent,#888)_15%,var(--card))] focus-visible:ring-2 focus-visible:ring-token-focus"
                                     style={{
                                       color: group.accentColor,
                                       borderColor:
