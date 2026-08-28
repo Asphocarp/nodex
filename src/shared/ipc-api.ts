@@ -449,7 +449,12 @@ import type {
   WindowSessionSaveLayoutInput,
 } from "./window-session";
 import type { FileLinkOpenerId, FileLinkTarget } from "./file-link-openers";
-import type { CommandKeybindingUpdate, CommandKeymapState } from "./command-keybindings";
+import type {
+  CommandKeybindingMutationResult,
+  CommandKeybindingUpdate,
+  CommandKeymapState,
+  KeyboardLayoutSnapshot,
+} from "./command-keybindings";
 import type { GlobalDictationRendererEvent } from "./global-dictation";
 import type {
   BrowserBrowsingDataClearResult,
@@ -1121,11 +1126,19 @@ export interface IpcApi {
   "codex-command-keymap-state": { args: []; result: CommandKeymapState };
   "set-codex-command-keybinding": {
     args: [commandId: string, update: CommandKeybindingUpdate];
-    result: CommandKeymapState;
+    result: CommandKeybindingMutationResult;
   };
-  "reset-codex-command-keybindings": { args: []; result: CommandKeymapState };
+  "reset-codex-command-keybindings": { args: []; result: CommandKeybindingMutationResult };
+  "global-dictation:keyboard-layout:update": {
+    args: [snapshot: KeyboardLayoutSnapshot];
+    result: boolean;
+  };
   "global-dictation-capture-fn-hotkey": { args: []; result: "Fn" | null };
   "global-dictation:event": { args: [event: GlobalDictationRendererEvent]; result: boolean };
+  "global-dictation:context-menu": {
+    args: [];
+    result: import("./global-dictation").GlobalDictationContextMenuAction;
+  };
   "app:update:status": { args: []; result: AppUpdateStatus };
   "app:update:check": { args: []; result: AppUpdateStatus };
   "app:update:install": { args: []; result: boolean };

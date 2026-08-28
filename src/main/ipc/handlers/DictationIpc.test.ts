@@ -40,7 +40,9 @@ it.effect("cancels only the owning renderer's active transcription fiber", () =>
       prepareStreamingConnectInfo: Effect.die("unused"),
       resolveImage: () => Effect.die("unused"),
     });
-    const dictation = DictationRuntime.of({} as DictationRuntime["Service"]);
+    const dictation = DictationRuntime.of({
+      ownsGlobalRenderer: () => false,
+    } as unknown as DictationRuntime["Service"]);
     const desktop = ElectronDesktop.of({
       dialog: null as never,
       menu: null as never,
@@ -101,6 +103,11 @@ it.effect("cancels only the owning renderer's active transcription fiber", () =>
     assert.isFalse(
       (yield* handlers.get("codex:dictation:transcribe:cancel")!(owner, requestId)) as boolean,
     );
+
+    const unauthorizedContextMenu = yield* Effect.exit(
+      handlers.get("global-dictation:context-menu")!(stranger),
+    );
+    assert.isTrue(Exit.isFailure(unauthorizedContextMenu));
 
     assert.strictEqual(
       yield* handlers.get("codex:dictation:cleanup")!(owner, {

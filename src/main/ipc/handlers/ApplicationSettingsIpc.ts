@@ -5,6 +5,8 @@ import type { IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
 import {
   COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
+  CommandKeybindingValidationError,
+  type CommandKeybindingMutationResult,
   type CommandKeybindingUpdate,
 } from "../../../shared/command-keybindings";
 import type {
@@ -165,15 +167,59 @@ export const live: Layer.Layer<
     };
     const commitKeymap = (
       mutation: ReturnType<typeof prepareCommandKeybindingUpdate>,
-    ): Effect.Effect<ReturnType<typeof getCommandKeymapState>, unknown> =>
+    ): Effect.Effect<CommandKeybindingMutationResult, unknown> =>
       dictation.syncCommandKeymap(mutation.nextState).pipe(
-        Effect.andThen(run("commit-command-keybindings", mutation.commit)),
+        Effect.flatMap((rejection): Effect.Effect<CommandKeybindingMutationResult, unknown> =>
+          rejection
+            ? Effect.succeed({
+                type: "rejected" as const,
+                state: mutation.previousState,
+                reason: rejection,
+              } satisfies CommandKeybindingMutationResult)
+            : run("commit-command-keybindings", mutation.commit).pipe(
+                Effect.tap((state) => Effect.sync(() => broadcastKeymap(state))),
+                Effect.map(
+                  (state) =>
+                    ({ type: "applied" as const, state }) satisfies CommandKeybindingMutationResult,
+                ),
+              ),
+        ),
         Effect.catch((cause) =>
           dictation
-            .syncCommandKeymap(mutation.previousState)
+            .restoreCommandKeymap(mutation.previousState)
             .pipe(Effect.ignore, Effect.andThen(Effect.fail(cause))),
         ),
       );
+    const prepareKeymapMutation = (
+      operation: string,
+      prepare: () => ReturnType<typeof prepareCommandKeybindingUpdate>,
+    ) =>
+      run(operation, () => {
+        try {
+          return { type: "prepared" as const, mutation: prepare() };
+        } catch (error) {
+          if (!(error instanceof CommandKeybindingValidationError)) throw error;
+          return {
+            type: "rejected" as const,
+            result: {
+              type: "rejected" as const,
+              state: getCommandKeymapState(),
+              reason: error.rejection,
+            },
+          };
+        }
+      });
+    const finishKeymapMutation = (
+      prepared:
+        | {
+            readonly type: "prepared";
+            readonly mutation: ReturnType<typeof prepareCommandKeybindingUpdate>;
+          }
+        | { readonly type: "rejected"; readonly result: CommandKeybindingMutationResult },
+    ) =>
+      prepared.type === "rejected"
+        ? Effect.succeed(prepared.result)
+        : commitKeymap(prepared.mutation);
 
     yield* handleRead("settings:backup:get", "Backup settings", getBackupSettings);
     yield* ipc.handle("settings:backup:update", (event, input: unknown) =>
@@ -285,7 +331,7 @@ export const live: Layer.Layer<
       (event, commandId: unknown, update: unknown) =>
         authorize(event, "Command keybindings").pipe(
           Effect.andThen(
-            run("prepare-command-keybinding", () => {
+            prepareKeymapMutation("prepare-command-keybinding", () => {
               if (typeof commandId !== "string") throw new Error("commandId must be a string");
               return prepareCommandKeybindingUpdate(
                 commandId,
@@ -293,15 +339,18 @@ export const live: Layer.Layer<
               );
             }),
           ),
-          Effect.flatMap(commitKeymap),
-          Effect.tap((state) => Effect.sync(() => broadcastKeymap(state))),
+          Effect.flatMap(finishKeymapMutation),
         ),
     );
     yield* ipc.handle("reset-codex-command-keybindings", (event) =>
       authorize(event, "Command keybindings").pipe(
-        Effect.andThen(run("prepare-command-keybindings-reset", prepareCommandKeybindingsReset)),
-        Effect.flatMap(commitKeymap),
-        Effect.tap((state) => Effect.sync(() => broadcastKeymap(state))),
+        Effect.andThen(
+          prepareKeymapMutation(
+            "prepare-command-keybindings-reset",
+            prepareCommandKeybindingsReset,
+          ),
+        ),
+        Effect.flatMap(finishKeymapMutation),
       ),
     );
   }),

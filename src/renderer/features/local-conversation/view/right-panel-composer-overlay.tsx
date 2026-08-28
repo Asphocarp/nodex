@@ -436,7 +436,10 @@ export function RightPanelComposerOverlay({
                 )}
                 inert={!contentVisible}
               >
-                <RightPanelComposerPresentationProvider presentation={presentation}>
+                <RightPanelComposerPresentationProvider
+                  presentation={presentation}
+                  visible={contentVisible}
+                >
                   {children}
                 </RightPanelComposerPresentationProvider>
               </div>

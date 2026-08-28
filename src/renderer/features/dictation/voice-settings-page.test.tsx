@@ -120,7 +120,9 @@ describe("VoiceSettingsPage", () => {
       inputMonitoring: false,
       accessibility: true,
     });
-    mocks.setKeybinding.mockReset().mockResolvedValue(commandKeymapState);
+    mocks.setKeybinding
+      .mockReset()
+      .mockResolvedValue({ type: "applied", state: commandKeymapState });
     mocks.updateSettings.mockReset().mockImplementation(async (patch) => ({
       microphoneInputDeviceId: "missing-microphone",
       keepGlobalBarVisible: false,
@@ -210,6 +212,33 @@ describe("VoiceSettingsPage", () => {
     expect(mocks.setKeybinding).not.toHaveBeenCalled();
     expect(
       screen.getByRole("button", { name: "Change shortcut for Toggle dictation hotkey" }),
+    ).toBeTruthy();
+  });
+
+  test("renders a typed native rejection instead of an IPC exception", async () => {
+    mocks.setKeybinding.mockResolvedValueOnce({
+      type: "rejected",
+      state: commandKeymapState,
+      reason: {
+        kind: "permission-required",
+        message: "Input Monitoring permission is required for global shortcuts.",
+      },
+    });
+    renderPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Change shortcut for Toggle dictation hotkey",
+      }),
+    );
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Toggle dictation hotkey capture" }), {
+      altKey: true,
+      code: "KeyY",
+      key: "¥",
+    });
+
+    expect(
+      await screen.findByText("Input Monitoring permission is required for global shortcuts."),
     ).toBeTruthy();
   });
 

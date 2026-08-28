@@ -1,21 +1,40 @@
-import { useEffect, useRef, useState } from "react";
-import { DictationMicrophoneIcon } from "@/components/shared/icons";
-import type { IpcApi } from "../../../shared/ipc-api";
-import type { GlobalDictationRendererEvent } from "../../../shared/global-dictation";
-import type { DictationSettings, MicrophoneAccessResult } from "../../../shared/dictation";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  ActivitySpinnerIcon,
+  DictationDismissIcon,
+  DictationMicrophoneIcon,
+  DictationRetryIcon,
+} from "@/components/shared/icons";
+import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
+import { NodexTooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { formatAcceleratorLabel } from "../../../shared/command-keybindings";
+import type {
+  DictationError,
+  DictationSettings,
+  MicrophoneAccessResult,
+} from "../../../shared/dictation";
 import { DEFAULT_DICTATION_SETTINGS } from "../../../shared/dictation";
-import { acquireMicrophone } from "./microphone-acquirer";
-import { browserDictationRecorderFactory } from "./dictation-recorder";
-import { createDictationHistoryPort } from "./dictation-history-client";
-import { mainDictationStreamingPort } from "./dictation-streaming-client";
-import { transcribeDictationBlob } from "./dictation-buffered-client";
+import type { GlobalDictationRendererEvent } from "../../../shared/global-dictation";
+import type { IpcApi } from "../../../shared/ipc-api";
 import { cleanupDictationTranscript } from "./dictation-cleanup-client";
+import { transcribeDictationBlob } from "./dictation-buffered-client";
+import { createDictationHistoryPort } from "./dictation-history-client";
+import { browserDictationRecorderFactory } from "./dictation-recorder";
 import {
   DictationSessionController,
   type DictationControllerPorts,
 } from "./dictation-session-controller";
-import { browserDictationWaveformPort } from "./dictation-waveform";
+import { mainDictationStreamingPort } from "./dictation-streaming-client";
+import {
+  browserGlobalDictationCompactWaveformPort,
+  GLOBAL_DICTATION_COMPACT_BAR_COUNT,
+  GLOBAL_DICTATION_COMPACT_SAMPLE_FLOOR,
+  resolveGlobalDictationCompactBarRects,
+} from "./global-dictation-compact-waveform";
+import { acquireMicrophone } from "./microphone-acquirer";
 import { useDictationSession } from "./use-dictation-session";
+import { useFloatingWindowPointerInteractivity } from "./use-floating-window-pointer-interactivity";
 
 const invoke = async <Channel extends keyof IpcApi>(
   channel: Channel,
@@ -28,6 +47,10 @@ const invoke = async <Channel extends keyof IpcApi>(
 
 const sendEvent = (event: GlobalDictationRendererEvent): Promise<boolean> =>
   window.globalDictation?.sendEvent(event) ?? Promise.resolve(false);
+
+const publishPointerInteractivity = (enabled: boolean): void => {
+  void sendEvent({ type: "interactive", enabled });
+};
 
 const defaultClock: DictationControllerPorts["clock"] = {
   now: () => performance.now(),
@@ -89,7 +112,7 @@ const playFeedbackTone = (frequency: number): void => {
     oscillator.start(startAt);
     oscillator.stop(stopAt);
   } catch {
-    // Feedback is intentionally best-effort; capture must not depend on audio playback.
+    // Capture does not depend on best-effort audible feedback.
   }
 };
 
@@ -100,84 +123,252 @@ export type GlobalDictationBarState =
   | "transcribing"
   | "error";
 
+function ShortcutHint({ accelerator }: { readonly accelerator: string }) {
+  return (
+    <ShortcutKeycaps
+      keys={[formatAcceleratorLabel(accelerator, "macOS")]}
+      density="compact"
+      tone="current"
+    />
+  );
+}
+
+function GlobalDictationReadyTooltip({
+  configuredHotkey,
+  configuredToggleHotkey,
+}: {
+  readonly configuredHotkey: string | null;
+  readonly configuredToggleHotkey: string | null;
+}) {
+  if (configuredHotkey && configuredToggleHotkey) {
+    return (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        Hold <ShortcutHint accelerator={configuredHotkey} /> or press
+        <ShortcutHint accelerator={configuredToggleHotkey} /> to dictate
+      </span>
+    );
+  }
+  if (configuredHotkey) {
+    return (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        Hold <ShortcutHint accelerator={configuredHotkey} /> to dictate
+      </span>
+    );
+  }
+  if (configuredToggleHotkey) {
+    return (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        Press <ShortcutHint accelerator={configuredToggleHotkey} /> to dictate
+      </span>
+    );
+  }
+  return null;
+}
+
+function GlobalDictationCompactCanvas({ levels }: { readonly levels: readonly number[] }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const levelsRef = useRef(levels);
+  const paintRef = useRef<() => void>(() => undefined);
+  levelsRef.current = levels;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const paint = (): void => {
+      const context = canvas.getContext("2d");
+      if (!context || canvas.clientWidth === 0 || canvas.clientHeight === 0) return;
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.floor(canvas.clientWidth * ratio);
+      const height = Math.floor(canvas.clientHeight * ratio);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = getComputedStyle(canvas).color || "#fff";
+      for (const rect of resolveGlobalDictationCompactBarRects(
+        width,
+        height,
+        ratio,
+        levelsRef.current,
+      )) {
+        context.globalAlpha = rect.alpha;
+        context.beginPath();
+        context.roundRect(rect.x, rect.y, rect.width, rect.height, rect.radius);
+        context.fill();
+      }
+      context.globalAlpha = 1;
+    };
+    paintRef.current = paint;
+    paint();
+    const observer = new ResizeObserver(paint);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => paintRef.current(), [levels]);
+
+  return <canvas ref={canvasRef} className="h-4 min-w-0 flex-1 text-white" aria-hidden="true" />;
+}
+
 export function GlobalDictationBar({
   state,
   waveform,
   error,
-  onCancel,
-  onOpenSettings,
+  canRetry = error?.retryable ?? false,
+  configuredHotkey = null,
+  configuredToggleHotkey = null,
+  activationNonce = 0,
+  onDismiss,
   onRetry,
+  onClose,
 }: {
   readonly state: GlobalDictationBarState;
   readonly waveform: readonly number[];
-  readonly error?: import("../../../shared/dictation").DictationError | null;
-  readonly onCancel: () => void;
-  readonly onOpenSettings?: () => void;
+  readonly error?: DictationError | null;
+  readonly canRetry?: boolean;
+  readonly configuredHotkey?: string | null;
+  readonly configuredToggleHotkey?: string | null;
+  readonly activationNonce?: number;
+  readonly onDismiss: () => void;
   readonly onRetry: () => void;
+  readonly onClose: () => void;
 }) {
-  const stateLabel =
-    state === "listening"
-      ? "Listening"
-      : state === "transcribing"
-        ? "Transcribing"
-        : state === "error"
-          ? errorMessage(error?.kind ?? "unknown")
-          : state === "idle"
-            ? "Ready"
-            : "Preparing microphone";
-  return (
-    <section
-      aria-label="Global dictation"
-      onMouseEnter={() => void sendEvent({ type: "interactive", enabled: true })}
-      onMouseLeave={() => void sendEvent({ type: "interactive", enabled: false })}
-      className="flex h-[68px] w-[704px] items-center gap-4 rounded-[22px] border border-white/12 bg-[#171918]/94 px-5 text-white shadow-[0_16px_48px_rgba(0,0,0,0.42)] backdrop-blur-2xl"
+  const interactiveRegionRef = useRef<HTMLElement>(null);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const hasConfiguredShortcut = configuredHotkey !== null || configuredToggleHotkey !== null;
+  useFloatingWindowPointerInteractivity({
+    activationNonce,
+    interactiveRegionRef,
+    onInteractiveChange: publishPointerInteractivity,
+  });
+
+  useEffect(() => {
+    if (state !== "idle") setTooltipOpen(false);
+  }, [state]);
+
+  const contextMenu = async (event: ReactMouseEvent): Promise<void> => {
+    event.preventDefault();
+    const selected = await window.globalDictation?.showContextMenu().catch(() => null);
+    if (selected === "close-window") onClose();
+  };
+  const accessibleLabel =
+    state === "initializing"
+      ? undefined
+      : state === "idle"
+        ? "Global dictation ready"
+        : "Global dictation waveform";
+  const status =
+    state === "idle"
+      ? "Dictation ready"
+      : state === "listening"
+        ? "Listening"
+        : state === "transcribing"
+          ? "Transcribing…"
+          : state === "error"
+            ? errorMessage(error?.kind ?? "unknown")
+            : null;
+  const mini = state === "initializing" || state === "idle";
+  const active = state === "listening" || state === "transcribing";
+  const errorState = state === "error";
+  const readyTooltip = (
+    <GlobalDictationReadyTooltip
+      configuredHotkey={configuredHotkey}
+      configuredToggleHotkey={configuredToggleHotkey}
+    />
+  );
+
+  const hitbox = (
+    <div
+      data-testid="global-dictation-hitbox"
+      className={cn(
+        "group flex items-end justify-center",
+        errorState ? "w-fit" : "h-[30px] w-[120px]",
+      )}
+      data-state={tooltipOpen ? "delayed-open" : "closed"}
     >
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#d7ff64] text-[#141611]">
-        <DictationMicrophoneIcon />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium tracking-[-0.01em]">{stateLabel}</div>
-        <div className="mt-1 flex h-5 items-center gap-[3px] overflow-hidden">
-          {Array.from({ length: 48 }, (_, index) => {
-            const level = waveform[index % Math.max(1, waveform.length)] ?? 0.08;
-            return (
-              <span
-                key={index}
-                className="w-[2px] rounded-full bg-[#d7ff64]/80 transition-[height] duration-75"
-                style={{ height: `${Math.max(3, Math.min(18, level * 18))}px` }}
-              />
-            );
-          })}
-        </div>
-      </div>
-      {state === "error" ? (
-        <div className="flex items-center gap-1">
-          {error?.kind === "accessibility-denied" && onOpenSettings ? (
+      <section
+        ref={interactiveRegionRef}
+        aria-live="polite"
+        aria-label={accessibleLabel}
+        onContextMenu={(event) => void contextMenu(event)}
+        className={cn(
+          "flex items-center overflow-hidden border shadow-[0_4px_8px_-2px_rgba(0,0,0,0.2)] transition-[width,height,border-radius,background-color] duration-150 [transition-timing-function:cubic-bezier(0.77,0,0.175,1)] [@media(forced-colors:active)]:bg-[Canvas] [@media(forced-colors:active)]:backdrop-blur-none motion-reduce:transition-none",
+          errorState ? "draggable" : "no-drag",
+          mini &&
+            "h-2 w-10 justify-center rounded-[4px] border-white/45 bg-black/70 px-0 backdrop-blur-[4px] [@media(prefers-reduced-transparency:reduce)]:bg-black/85 [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none",
+          state === "idle" &&
+            "group-hover:h-[30px] group-hover:w-[72px] group-hover:rounded-full group-hover:border-white/[0.063] group-hover:bg-black group-data-[state=delayed-open]:h-[30px] group-data-[state=delayed-open]:w-[72px] group-data-[state=delayed-open]:rounded-full group-data-[state=delayed-open]:border-white/[0.063] group-data-[state=delayed-open]:bg-black",
+          active &&
+            "h-[30px] w-[72px] justify-center rounded-full border-white/[0.063] bg-black px-2",
+          errorState &&
+            "h-8 w-fit max-w-[304px] gap-2 rounded-2xl border-white/[0.063] bg-black px-2",
+        )}
+      >
+        {state === "idle" ? (
+          <span className="relative flex h-full w-full items-center justify-center text-white/65">
+            <DictationMicrophoneIcon className="absolute size-4 scale-75 opacity-0 transition-[opacity,transform] duration-150 [transition-timing-function:cubic-bezier(0.77,0,0.175,1)] group-hover:scale-100 group-hover:opacity-100 group-data-[state=delayed-open]:scale-100 group-data-[state=delayed-open]:opacity-100 motion-reduce:transition-none" />
+          </span>
+        ) : null}
+        {state === "transcribing" ? (
+          <ActivitySpinnerIcon className="size-4 text-white/65" animationDurationMs={1_000} />
+        ) : null}
+        {state === "listening" ? (
+          <GlobalDictationCompactCanvas
+            levels={
+              waveform.length === GLOBAL_DICTATION_COMPACT_BAR_COUNT
+                ? waveform
+                : Array.from(
+                    { length: GLOBAL_DICTATION_COMPACT_BAR_COUNT },
+                    () => GLOBAL_DICTATION_COMPACT_SAMPLE_FLOOR,
+                  )
+            }
+          />
+        ) : null}
+        {errorState ? (
+          <>
+            <span className="max-w-[252px] min-w-0 truncate text-xs font-medium text-[#ffa495]">
+              {status}
+            </span>
+            {canRetry ? (
+              <button
+                type="button"
+                className="no-drag flex size-5 shrink-0 items-center justify-center rounded-full text-white/65 hover:bg-white/8 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                aria-label="Retry"
+                onClick={onRetry}
+              >
+                <DictationRetryIcon className="size-3.5" />
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={onOpenSettings}
-              className="rounded-lg px-3 py-2 text-xs font-medium text-white/75 hover:bg-white/8 hover:text-white"
+              className="no-drag flex size-5 shrink-0 items-center justify-center rounded-full text-white/65 hover:bg-white/8 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+              aria-label="Dismiss"
+              onClick={onDismiss}
             >
-              Open Settings
+              <DictationDismissIcon className="size-3.5" />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onRetry}
-            className="rounded-lg px-3 py-2 text-xs font-medium text-[#d7ff64] hover:bg-white/8"
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-      <button
-        type="button"
-        onClick={onCancel}
-        className="rounded-lg px-3 py-2 text-xs text-white/60 hover:bg-white/8 hover:text-white"
-      >
-        Cancel
-      </button>
-    </section>
+          </>
+        ) : null}
+        {status ? <span className="sr-only">{status}</span> : null}
+      </section>
+    </div>
+  );
+
+  return (
+    <NodexTooltip
+      tooltipContent={readyTooltip}
+      disabled={state !== "idle" || !hasConfiguredShortcut}
+      delay={250}
+      side="top"
+      sideOffset={10}
+      open={state === "idle" && tooltipOpen}
+      onOpenChange={(open) => setTooltipOpen(state === "idle" && open)}
+      tooltipClassName="rounded-full border-white/[0.063] bg-black px-4 py-2 text-white [@media(forced-colors:active)]:bg-[Canvas]"
+    >
+      {hitbox}
+    </NodexTooltip>
   );
 }
 
@@ -188,9 +379,12 @@ export function GlobalDictationRoot() {
   const previousSnapshotKindRef = useRef("idle");
   const appliedCompletionIdsRef = useRef(new Set<string>());
   const [settings, setSettings] = useState<DictationSettings>(DEFAULT_DICTATION_SETTINGS);
-  const [externalError, setExternalError] = useState<
-    import("../../../shared/dictation").DictationError | null
-  >(null);
+  const [presentationState, setPresentationState] =
+    useState<GlobalDictationBarState>("initializing");
+  const [configuredHotkey, setConfiguredHotkey] = useState<string | null>(null);
+  const [configuredToggleHotkey, setConfiguredToggleHotkey] = useState<string | null>(null);
+  const [activationNonce, setActivationNonce] = useState(0);
+  const [externalError, setExternalError] = useState<DictationError | null>(null);
   const [controller] = useState(
     () =>
       new DictationSessionController({
@@ -220,7 +414,7 @@ export function GlobalDictationRoot() {
           },
         },
         recorder: browserDictationRecorderFactory,
-        waveform: browserDictationWaveformPort,
+        waveform: browserGlobalDictationCompactWaveformPort,
         streaming: mainDictationStreamingPort,
         buffered: { transcribe },
         cleanup: {
@@ -261,28 +455,43 @@ export function GlobalDictationRoot() {
     const bridge = window.globalDictation;
     if (!bridge) return;
     return bridge.onCommand((command) => {
+      if (command.type === "idle") {
+        activeSessionIdRef.current = null;
+        setConfiguredHotkey(command.configuredHotkey);
+        setConfiguredToggleHotkey(command.configuredToggleHotkey);
+        setExternalError(null);
+        setActivationNonce((nonce) => nonce + 1);
+        setPresentationState(
+          command.configuredHotkey || command.configuredToggleHotkey ? "idle" : "initializing",
+        );
+        return;
+      }
       if (command.type === "start") {
         if (controller.getSnapshot().kind !== "idle") return;
         activeSessionIdRef.current = command.sessionId;
         completionReportedRef.current = false;
         setExternalError(null);
+        setActivationNonce((nonce) => nonce + 1);
+        setPresentationState("listening");
         lastStateEventRef.current = null;
-        void sendEvent({ type: "accepted", sessionId: command.sessionId }).then(
-          async (accepted) => {
-            if (!accepted || activeSessionIdRef.current !== command.sessionId) {
-              if (activeSessionIdRef.current === command.sessionId) {
-                activeSessionIdRef.current = null;
-              }
-              return;
-            }
-            await controller.start({ surface: "global", gesture: command.gesture });
-          },
-        );
+        void sendEvent({
+          type: "accepted",
+          sessionId: command.sessionId,
+          requestId: command.requestId,
+          targetId: "global-overlay",
+        }).then(async (accepted) => {
+          if (!accepted || activeSessionIdRef.current !== command.sessionId) {
+            if (activeSessionIdRef.current === command.sessionId) activeSessionIdRef.current = null;
+            return;
+          }
+          await controller.start({ surface: "global", gesture: command.gesture });
+        });
         return;
       }
       if (command.sessionId !== activeSessionIdRef.current) return;
       if (command.type === "paste-failed") {
         setExternalError(command.error);
+        setPresentationState("error");
         return;
       }
       if (command.type === "finish") {
@@ -290,8 +499,12 @@ export function GlobalDictationRoot() {
         setExternalError(null);
         return;
       }
-      if (command.type === "stop") controller.stop("insert");
-      else controller.cancel();
+      if (command.type === "stop") {
+        setPresentationState("transcribing");
+        controller.stop("insert");
+      } else {
+        controller.cancel();
+      }
     });
   }, [controller]);
 
@@ -301,9 +514,10 @@ export function GlobalDictationRoot() {
     const nextEvent =
       snapshot.kind === "recording"
         ? "listening"
-        : snapshot.kind === "transcribing"
+        : snapshot.kind === "transcribing" || snapshot.kind === "stopping"
           ? "transcribing"
           : null;
+    if (nextEvent) setPresentationState(nextEvent);
     if (nextEvent && lastStateEventRef.current !== nextEvent) {
       lastStateEventRef.current = nextEvent;
       void sendEvent({ type: "state", sessionId, state: nextEvent });
@@ -311,6 +525,7 @@ export function GlobalDictationRoot() {
     }
     if (snapshot.kind === "retryable-error") {
       const identity = `failed:${snapshot.error.kind}`;
+      setPresentationState("error");
       if (lastStateEventRef.current === identity) return;
       lastStateEventRef.current = identity;
       void sendEvent({ type: "failed", sessionId, error: snapshot.error });
@@ -337,20 +552,19 @@ export function GlobalDictationRoot() {
   const retry = (): void => {
     if (externalError) {
       const sessionId = activeSessionIdRef.current;
-      if (sessionId) void sendEvent({ type: "retry-paste", sessionId });
+      if (sessionId) {
+        setPresentationState("transcribing");
+        void sendEvent({ type: "retry-paste", sessionId });
+      }
       return;
     }
     if (snapshot.kind !== "retryable-error") return;
-    if (snapshot.canRetryRecording) {
-      void controller.retry();
-      return;
-    }
-    const sessionId = activeSessionIdRef.current;
-    if (!sessionId) return;
-    void controller.start({ surface: "global", gesture: "retry" });
+    if (!snapshot.canRetryRecording) return;
+    setPresentationState("transcribing");
+    void controller.retry();
   };
 
-  const cancel = (): void => {
+  const dismiss = (): void => {
     const sessionId = activeSessionIdRef.current;
     controller.cancel();
     if (!sessionId) return;
@@ -358,34 +572,36 @@ export function GlobalDictationRoot() {
     void sendEvent({ type: externalError ? "dismiss" : "cancelled", sessionId });
   };
 
+  const close = (): void => {
+    void sendEvent({ type: "close", sessionId: activeSessionIdRef.current });
+  };
+
   const waveform = snapshot.kind === "recording" ? snapshot.waveform : [];
   const visibleError =
     externalError ?? (snapshot.kind === "retryable-error" ? snapshot.error : null);
-  const barState: GlobalDictationBarState = visibleError
-    ? "error"
-    : snapshot.kind === "recording"
-      ? "listening"
-      : snapshot.kind === "transcribing" || snapshot.kind === "stopping"
-        ? "transcribing"
-        : activeSessionIdRef.current
-          ? "initializing"
-          : "idle";
+  const canRetry = externalError
+    ? externalError.retryable
+    : snapshot.kind === "retryable-error" && snapshot.canRetryRecording;
+  const barState = visibleError ? "error" : presentationState;
 
   return (
-    <main className="flex h-screen w-screen items-center justify-center bg-transparent p-0">
+    <main
+      className={cn(
+        "flex h-screen w-screen items-end justify-center overflow-hidden bg-transparent text-white",
+        barState === "error" && "p-1",
+      )}
+    >
       <GlobalDictationBar
         state={barState}
         waveform={waveform}
         error={visibleError}
-        onCancel={cancel}
-        onOpenSettings={
-          visibleError?.kind === "accessibility-denied"
-            ? () => {
-                void invoke("codex:dictation:global-permissions:open-accessibility-settings");
-              }
-            : undefined
-        }
+        canRetry={canRetry}
+        configuredHotkey={configuredHotkey}
+        configuredToggleHotkey={configuredToggleHotkey}
+        activationNonce={activationNonce}
+        onDismiss={dismiss}
         onRetry={retry}
+        onClose={close}
       />
     </main>
   );

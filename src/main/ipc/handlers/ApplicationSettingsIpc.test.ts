@@ -30,7 +30,7 @@ it.effect("owns the complete application settings ingress with the Main Scope", 
     } as ElectronIpc["Service"]);
     const menus = ApplicationMenuRuntime.of({ refresh: () => undefined });
     const dictation = DictationRuntime.of({
-      syncCommandKeymap: () => Effect.void,
+      syncCommandKeymap: () => Effect.succeed(null),
     } as unknown as DictationRuntime["Service"]);
     const schedulers = StoreAdministrationSchedulerRuntime.of({
       configureBackup: () => Effect.void,
@@ -83,6 +83,19 @@ it.effect("owns the complete application settings ingress with the Main Scope", 
       sender: { getType: () => "window", id: 7, mainFrame: frame },
       senderFrame: frame,
     } as unknown as IpcMainInvokeEvent;
+    const rejectedShortcut = (yield* handlers.get("set-codex-command-keybinding")!(
+      event,
+      "globalDictationHold",
+      { type: "set", keybinding: { key: "Y" } },
+    )) as {
+      readonly type: string;
+      readonly reason?: { readonly kind: string; readonly message: string };
+    };
+    assert.strictEqual(rejectedShortcut.type, "rejected");
+    assert.deepEqual(rejectedShortcut.reason, {
+      kind: "modifier-required",
+      message: "Shortcut must include Cmd/Ctrl or Alt.",
+    });
     const invalid = yield* Effect.result(
       handlers.get("settings:backup:update")!(event, {
         autoEnabled: true,

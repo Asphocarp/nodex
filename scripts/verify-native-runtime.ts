@@ -998,6 +998,7 @@ const smokeDictationHelper = async (appPath: string): Promise<void> => {
   child.stderr.resume();
   let stdout = "";
   let ready = false;
+  let bindingResponse = false;
   let response = false;
   await new Promise<void>((resolveSmoke, rejectSmoke) => {
     const timeout = setTimeout(() => {
@@ -1023,8 +1024,24 @@ const smokeDictationHelper = async (appPath: string): Promise<void> => {
           fail(new Error("Packaged dictation helper emitted invalid JSON"));
           return;
         }
-        if (message.type === "ready" && message.protocolVersion === 1) {
+        if (message.type === "ready" && message.protocolVersion === 2) {
           ready = true;
+          child.stdin.write(
+            `${JSON.stringify({
+              id: "smoke-bindings",
+              type: "replaceBindings",
+              generation: 1,
+              bindings: [],
+            })}\n`,
+          );
+        } else if (
+          message.type === "response" &&
+          message.id === "smoke-bindings" &&
+          message.ok === true &&
+          (message.value as Record<string, unknown> | undefined)?.applied === true &&
+          (message.value as Record<string, unknown> | undefined)?.generation === 1
+        ) {
+          bindingResponse = true;
           child.stdin.write(
             `${JSON.stringify({ id: "smoke-capabilities", type: "capabilities" })}\n`,
           );
@@ -1044,7 +1061,7 @@ const smokeDictationHelper = async (appPath: string): Promise<void> => {
     });
     child.once("exit", (code) => {
       clearTimeout(timeout);
-      if (code === 0 && ready && response) resolveSmoke();
+      if (code === 0 && ready && bindingResponse && response) resolveSmoke();
       else rejectSmoke(new Error(`Packaged dictation helper smoke exited with code ${code}`));
     });
   });

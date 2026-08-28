@@ -70,6 +70,148 @@ export interface KeyboardShortcutEventLike {
   shiftKey: boolean;
 }
 
+export const SUPPORTED_KEYBOARD_CODES = [
+  "KeyA",
+  "KeyB",
+  "KeyC",
+  "KeyD",
+  "KeyE",
+  "KeyF",
+  "KeyG",
+  "KeyH",
+  "KeyI",
+  "KeyJ",
+  "KeyK",
+  "KeyL",
+  "KeyM",
+  "KeyN",
+  "KeyO",
+  "KeyP",
+  "KeyQ",
+  "KeyR",
+  "KeyS",
+  "KeyT",
+  "KeyU",
+  "KeyV",
+  "KeyW",
+  "KeyX",
+  "KeyY",
+  "KeyZ",
+  "Digit0",
+  "Digit1",
+  "Digit2",
+  "Digit3",
+  "Digit4",
+  "Digit5",
+  "Digit6",
+  "Digit7",
+  "Digit8",
+  "Digit9",
+  "Backquote",
+  "Minus",
+  "Equal",
+  "BracketLeft",
+  "BracketRight",
+  "Backslash",
+  "Semicolon",
+  "Quote",
+  "Comma",
+  "Period",
+  "Slash",
+  "Enter",
+  "Tab",
+  "Space",
+  "Backspace",
+  "Escape",
+  "Delete",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+  "F5",
+  "F6",
+  "F7",
+  "F8",
+  "F9",
+  "F10",
+  "F11",
+  "F12",
+  "F13",
+  "F14",
+  "F15",
+  "F16",
+  "F17",
+  "F18",
+  "F19",
+  "F20",
+] as const;
+
+export type SupportedKeyboardCode = (typeof SUPPORTED_KEYBOARD_CODES)[number];
+
+export interface KeyboardLayoutSnapshot {
+  readonly generation: number;
+  readonly entries: Readonly<Partial<Record<SupportedKeyboardCode, string>>>;
+}
+
+export type MacNativeHotkeyModifier = "command" | "control" | "function" | "option" | "shift";
+
+/** Transport shape consumed by the signed macOS helper. Display accelerators never cross this seam. */
+export interface MacNativeHotkeySpec {
+  readonly bindingId: string;
+  readonly mode: "hold" | "toggle";
+  readonly modifiers: readonly MacNativeHotkeyModifier[];
+  readonly keyCode: number | null;
+  readonly bareModifierKeyCodes: readonly number[] | null;
+}
+
+export type MacNativeHotkeyCompilation =
+  | { readonly type: "compiled"; readonly spec: MacNativeHotkeySpec }
+  | { readonly type: "rejected"; readonly reason: CommandKeybindingRejection };
+
+export type CommandKeybindingRejectionKind =
+  | "conflict"
+  | "duplicate"
+  | "invalid-accelerator"
+  | "modifier-required"
+  | "non-modifier-required"
+  | "unsupported-key"
+  | "unsupported-sequence"
+  | "permission-required"
+  | "runtime-degraded";
+
+export interface CommandKeybindingRejection {
+  readonly kind: CommandKeybindingRejectionKind;
+  readonly message: string;
+  readonly conflictingCommandId?: string;
+  readonly conflictingCommandTitle?: string;
+}
+
+export type CommandKeybindingMutationResult =
+  | { readonly type: "applied"; readonly state: CommandKeymapState }
+  | {
+      readonly type: "rejected";
+      readonly state: CommandKeymapState;
+      readonly reason: CommandKeybindingRejection;
+    };
+
+export class CommandKeybindingValidationError extends Error {
+  readonly rejection: CommandKeybindingRejection;
+
+  constructor(rejection: CommandKeybindingRejection) {
+    super(rejection.message);
+    this.name = "CommandKeybindingValidationError";
+    this.rejection = rejection;
+  }
+}
+
 export interface MouseShortcutEventLike {
   button: number;
 }
@@ -181,6 +323,182 @@ const KEY_ALIASES = new Map<string, string>([
   ["mouseback", "MouseBack"],
   ["mouseforward", "MouseForward"],
 ]);
+
+const DEFAULT_KEY_BY_CODE: Readonly<Record<SupportedKeyboardCode, string>> = {
+  KeyA: "A",
+  KeyB: "B",
+  KeyC: "C",
+  KeyD: "D",
+  KeyE: "E",
+  KeyF: "F",
+  KeyG: "G",
+  KeyH: "H",
+  KeyI: "I",
+  KeyJ: "J",
+  KeyK: "K",
+  KeyL: "L",
+  KeyM: "M",
+  KeyN: "N",
+  KeyO: "O",
+  KeyP: "P",
+  KeyQ: "Q",
+  KeyR: "R",
+  KeyS: "S",
+  KeyT: "T",
+  KeyU: "U",
+  KeyV: "V",
+  KeyW: "W",
+  KeyX: "X",
+  KeyY: "Y",
+  KeyZ: "Z",
+  Digit0: "0",
+  Digit1: "1",
+  Digit2: "2",
+  Digit3: "3",
+  Digit4: "4",
+  Digit5: "5",
+  Digit6: "6",
+  Digit7: "7",
+  Digit8: "8",
+  Digit9: "9",
+  Backquote: "`",
+  Minus: "-",
+  Equal: "=",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Enter: "Enter",
+  Tab: "Tab",
+  Space: "Space",
+  Backspace: "Backspace",
+  Escape: "Escape",
+  Delete: "Delete",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  F1: "F1",
+  F2: "F2",
+  F3: "F3",
+  F4: "F4",
+  F5: "F5",
+  F6: "F6",
+  F7: "F7",
+  F8: "F8",
+  F9: "F9",
+  F10: "F10",
+  F11: "F11",
+  F12: "F12",
+  F13: "F13",
+  F14: "F14",
+  F15: "F15",
+  F16: "F16",
+  F17: "F17",
+  F18: "F18",
+  F19: "F19",
+  F20: "F20",
+};
+
+const MAC_KEY_CODE_BY_CODE: Readonly<Record<SupportedKeyboardCode, number>> = {
+  KeyA: 0,
+  KeyS: 1,
+  KeyD: 2,
+  KeyF: 3,
+  KeyH: 4,
+  KeyG: 5,
+  KeyZ: 6,
+  KeyX: 7,
+  KeyC: 8,
+  KeyV: 9,
+  KeyB: 11,
+  KeyQ: 12,
+  KeyW: 13,
+  KeyE: 14,
+  KeyR: 15,
+  KeyY: 16,
+  KeyT: 17,
+  Digit1: 18,
+  Digit2: 19,
+  Digit3: 20,
+  Digit4: 21,
+  Digit6: 22,
+  Digit5: 23,
+  Equal: 24,
+  Digit9: 25,
+  Digit7: 26,
+  Minus: 27,
+  Digit8: 28,
+  Digit0: 29,
+  BracketRight: 30,
+  KeyO: 31,
+  KeyU: 32,
+  BracketLeft: 33,
+  KeyI: 34,
+  KeyP: 35,
+  Enter: 36,
+  KeyL: 37,
+  KeyJ: 38,
+  Quote: 39,
+  KeyK: 40,
+  Semicolon: 41,
+  Backslash: 42,
+  Comma: 43,
+  Slash: 44,
+  KeyN: 45,
+  KeyM: 46,
+  Period: 47,
+  Tab: 48,
+  Space: 49,
+  Backquote: 50,
+  Backspace: 51,
+  Escape: 53,
+  F17: 64,
+  F18: 79,
+  F19: 80,
+  F20: 90,
+  F5: 96,
+  F6: 97,
+  F7: 98,
+  F3: 99,
+  F8: 100,
+  F9: 101,
+  F11: 103,
+  F13: 105,
+  F16: 106,
+  F14: 107,
+  F10: 109,
+  F12: 111,
+  F15: 113,
+  Home: 115,
+  PageUp: 116,
+  Delete: 117,
+  F4: 118,
+  End: 119,
+  F2: 120,
+  PageDown: 121,
+  F1: 122,
+  ArrowLeft: 123,
+  ArrowRight: 124,
+  ArrowDown: 125,
+  ArrowUp: 126,
+};
+
+const SUPPORTED_GLOBAL_SHORTCUT_KEYS = new Set(Object.values(DEFAULT_KEY_BY_CODE));
+const SUPPORTED_KEYBOARD_CODE_SET = new Set<string>(SUPPORTED_KEYBOARD_CODES);
+
+export const DEFAULT_KEYBOARD_LAYOUT_SNAPSHOT: KeyboardLayoutSnapshot = {
+  generation: 0,
+  entries: DEFAULT_KEY_BY_CODE,
+};
 
 export const CODEX_COMMAND_REGISTRY = [
   command("archiveThread", "Archive chat", "Archive the current chat", 10, "app", [
@@ -689,7 +1007,10 @@ export function resolveRuntimePlatform(nodePlatform = process.platform): Runtime
   return "linux";
 }
 
-export function normalizeCommandKeybindingOverrides(value: unknown): CommandKeybindingOverrides {
+export function normalizeCommandKeybindingOverrides(
+  value: unknown,
+  platform: RuntimePlatform = resolveRuntimePlatform(),
+): CommandKeybindingOverrides {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -700,7 +1021,17 @@ export function normalizeCommandKeybindingOverrides(value: unknown): CommandKeyb
       const normalized = rawKeys
         .filter((rawKey): rawKey is string => typeof rawKey === "string")
         .map((rawKey) => normalizeAccelerator(rawKey))
-        .filter((key) => key.length > 0);
+        .filter((key) => key.length > 0)
+        .filter(
+          (key) =>
+            (commandId !== "globalDictationHold" && commandId !== "globalDictationToggle") ||
+            validateGlobalDictationShortcutRejection(key, platform) === null,
+        );
+      const isGlobalDictationCommand =
+        commandId === "globalDictationHold" || commandId === "globalDictationToggle";
+      if (isGlobalDictationCommand && rawKeys.length > 0 && normalized.length === 0) {
+        return acc;
+      }
       acc[commandId] = normalized;
       return acc;
     },
@@ -785,17 +1116,26 @@ export function validateCommandKeybindings(
 
   normalizedKeys.forEach((key) => {
     if (entry.shortcutScope === "os-global") {
-      const validationError = validateGlobalDictationShortcut(key, platform);
-      if (validationError) throw new Error(validationError);
+      const rejection = validateGlobalDictationShortcutRejection(key, platform);
+      if (rejection) throw new CommandKeybindingValidationError(rejection);
     }
     if (!isValidAccelerator(key, { allowsBareModifiers: entry.allowsBareModifiers === true })) {
-      throw new Error(`Invalid keyboard shortcut: ${key}`);
+      throw new CommandKeybindingValidationError({
+        kind: "invalid-accelerator",
+        message: `Invalid keyboard shortcut: ${key}`,
+      });
     }
     if (!entry.allowsSequences && key.includes(" ")) {
-      throw new Error(`Keyboard shortcut sequences are not supported for ${entry.title}`);
+      throw new CommandKeybindingValidationError({
+        kind: "unsupported-sequence",
+        message: `Keyboard shortcut sequences are not supported for ${entry.title}`,
+      });
     }
     if (seen.has(key)) {
-      throw new Error(`Duplicate keyboard shortcut: ${formatAcceleratorLabel(key, platform)}`);
+      throw new CommandKeybindingValidationError({
+        kind: "duplicate",
+        message: `Duplicate keyboard shortcut: ${formatAcceleratorLabel(key, platform)}`,
+      });
     }
     seen.add(key);
 
@@ -805,7 +1145,12 @@ export function validateCommandKeybindings(
       key,
     );
     if (conflict) {
-      throw new Error(`Keyboard shortcut already used by ${conflict.commandTitle}`);
+      throw new CommandKeybindingValidationError({
+        kind: "conflict",
+        message: `Keyboard shortcut already used by ${conflict.commandTitle}`,
+        conflictingCommandId: conflict.commandId,
+        conflictingCommandTitle: conflict.commandTitle,
+      });
     }
   });
 }
@@ -815,6 +1160,13 @@ export function validateGlobalDictationShortcut(
   accelerator: string,
   platform: RuntimePlatform = resolveRuntimePlatform(),
 ): string | null {
+  return validateGlobalDictationShortcutRejection(accelerator, platform)?.message ?? null;
+}
+
+export function validateGlobalDictationShortcutRejection(
+  accelerator: string,
+  platform: RuntimePlatform = resolveRuntimePlatform(),
+): CommandKeybindingRejection | null {
   if (platform === "macOS" && normalizeMacBareModifier(accelerator)) return null;
 
   const parts = accelerator
@@ -822,12 +1174,23 @@ export function validateGlobalDictationShortcut(
     .map((part) => part.trim())
     .filter(Boolean);
   if (parts.some(isKnownMacBareModifierPart)) {
-    if (parts.length > 1) return "Use Ctrl, Alt, or Command when combining with another key.";
-    return platform === "macOS"
-      ? "This shortcut key is not supported."
-      : "Choose a shortcut with Ctrl or Alt plus another key.";
+    if (parts.length > 1) {
+      return {
+        kind: "unsupported-key",
+        message: "Use Ctrl, Alt, or Command when combining with another key.",
+      };
+    }
+    return {
+      kind: "unsupported-key",
+      message:
+        platform === "macOS"
+          ? "This shortcut key is not supported."
+          : "Choose a shortcut with Ctrl or Alt plus another key.",
+    };
   }
-  if (parts.length === 0) return "Shortcut cannot be empty.";
+  if (parts.length === 0) {
+    return { kind: "invalid-accelerator", message: "Shortcut cannot be empty." };
+  }
 
   let hasPrimaryModifier = false;
   let nonModifierKey: string | null = null;
@@ -837,11 +1200,136 @@ export function validateGlobalDictationShortcut(
       if (GLOBAL_PRIMARY_MODIFIER_SET.has(modifier)) hasPrimaryModifier = true;
       continue;
     }
-    if (nonModifierKey !== null) return "Shortcut must include exactly one non-modifier key.";
-    nonModifierKey = part;
+    if (nonModifierKey !== null) {
+      return {
+        kind: "invalid-accelerator",
+        message: "Shortcut must include exactly one non-modifier key.",
+      };
+    }
+    nonModifierKey = normalizeKeyName(part);
   }
-  if (nonModifierKey === null) return "Shortcut must include a non-modifier key.";
-  return hasPrimaryModifier ? null : "Shortcut must include Cmd/Ctrl or Alt.";
+  if (nonModifierKey === null) {
+    return {
+      kind: "non-modifier-required",
+      message: "Shortcut must include a non-modifier key.",
+    };
+  }
+  if (!SUPPORTED_GLOBAL_SHORTCUT_KEYS.has(nonModifierKey)) {
+    return { kind: "unsupported-key", message: "This shortcut key is not supported." };
+  }
+  return hasPrimaryModifier
+    ? null
+    : { kind: "modifier-required", message: "Shortcut must include Cmd/Ctrl or Alt." };
+}
+
+export function createKeyboardLayoutSnapshot(
+  generation: number,
+  entries: Readonly<Record<string, string>>,
+): KeyboardLayoutSnapshot {
+  const normalizedEntries: Partial<Record<SupportedKeyboardCode, string>> = {};
+  for (const [code, value] of Object.entries(entries)) {
+    if (!SUPPORTED_KEYBOARD_CODE_SET.has(code)) continue;
+    const normalized = normalizeKeyName(value);
+    if (!SUPPORTED_GLOBAL_SHORTCUT_KEYS.has(normalized)) continue;
+    normalizedEntries[code as SupportedKeyboardCode] = normalized;
+  }
+  return {
+    generation: Number.isSafeInteger(generation) && generation >= 0 ? generation : 0,
+    entries: normalizedEntries,
+  };
+}
+
+const MAC_BARE_HOTKEYS: Readonly<
+  Record<
+    string,
+    {
+      readonly modifiers: readonly MacNativeHotkeyModifier[];
+      readonly bareModifierKeyCodes: readonly number[];
+    }
+  >
+> = {
+  Fn: { modifiers: ["function"], bareModifierKeyCodes: [63] },
+  LeftOption: { modifiers: ["option"], bareModifierKeyCodes: [58] },
+  RightOption: { modifiers: ["option"], bareModifierKeyCodes: [61] },
+  DoubleOption: { modifiers: ["option"], bareModifierKeyCodes: [58, 61] },
+  LeftCommand: { modifiers: ["command"], bareModifierKeyCodes: [55] },
+  RightCommand: { modifiers: ["command"], bareModifierKeyCodes: [54] },
+  DoubleCommand: { modifiers: ["command"], bareModifierKeyCodes: [54, 55] },
+  LeftControl: { modifiers: ["control"], bareModifierKeyCodes: [59] },
+  DoubleShift: { modifiers: ["shift"], bareModifierKeyCodes: [56, 60] },
+};
+
+function keyboardCodeForCanonicalKey(
+  key: string,
+  layout: KeyboardLayoutSnapshot,
+): SupportedKeyboardCode | null {
+  for (const code of SUPPORTED_KEYBOARD_CODES) {
+    const mapped = layout.entries[code] ?? DEFAULT_KEY_BY_CODE[code];
+    if (normalizeKeyName(mapped) === key) return code;
+  }
+  return null;
+}
+
+/** Compiles a canonical product shortcut into the finite native helper protocol. */
+export function compileMacNativeHotkey(input: {
+  readonly accelerator: string;
+  readonly bindingId: string;
+  readonly mode: "hold" | "toggle";
+  readonly layout?: KeyboardLayoutSnapshot;
+}): MacNativeHotkeyCompilation {
+  const normalized = normalizeAccelerator(input.accelerator);
+  const validation = validateGlobalDictationShortcutRejection(normalized, "macOS");
+  if (validation) return { type: "rejected", reason: validation };
+
+  const bare = MAC_BARE_HOTKEYS[normalized];
+  if (bare) {
+    return {
+      type: "compiled",
+      spec: {
+        bindingId: input.bindingId,
+        mode: input.mode,
+        modifiers: bare.modifiers,
+        keyCode: null,
+        bareModifierKeyCodes: bare.bareModifierKeyCodes,
+      },
+    };
+  }
+
+  const parsed = parseChord(normalized);
+  if (!parsed?.key) {
+    return {
+      type: "rejected",
+      reason: { kind: "invalid-accelerator", message: "Invalid global shortcut." },
+    };
+  }
+  const code = keyboardCodeForCanonicalKey(
+    parsed.key,
+    input.layout ?? DEFAULT_KEYBOARD_LAYOUT_SNAPSHOT,
+  );
+  if (!code) {
+    return {
+      type: "rejected",
+      reason: { kind: "unsupported-key", message: "This shortcut key is not supported." },
+    };
+  }
+
+  const modifiers = parsed.modifiers.flatMap<MacNativeHotkeyModifier>((modifier) => {
+    if (modifier === "CmdOrCtrl" || modifier === "Command") return ["command"];
+    if (modifier === "Ctrl") return ["control"];
+    if (modifier === "Alt") return ["option"];
+    if (modifier === "Shift") return ["shift"];
+    return [];
+  });
+  return {
+    type: "compiled",
+    spec: {
+      bindingId: input.bindingId,
+      mode: input.mode,
+      modifiers,
+      keyCode: MAC_KEY_CODE_BY_CODE[code],
+      bareModifierKeyCodes: null,
+    },
+  };
 }
 
 export function findCommandKeybindingConflict(
@@ -998,10 +1486,13 @@ export function commandAcceleratorsInclude(
 export function keyboardEventToAccelerator(
   event: KeyboardShortcutEventLike,
   platform: RuntimePlatform = resolveRuntimePlatform(),
-  options: { allowsBareModifiers?: boolean } = {},
+  options: {
+    readonly allowsBareModifiers?: boolean;
+    readonly keyboardLayout?: KeyboardLayoutSnapshot;
+  } = {},
 ): string | null {
   const modifiers = eventModifiers(event, platform);
-  const key = normalizeEventKey(event);
+  const key = normalizeEventKey(event, options.keyboardLayout);
   const isBareModifier = MODIFIER_SET.has(key);
 
   if (isBareModifier && !options.allowsBareModifiers) return null;
@@ -1254,10 +1745,19 @@ function normalizeKeyName(rawKey: string): string {
 }
 
 function normalizeEventKey(
-  event: Pick<KeyboardShortcutEventLike, "key" | "code" | "shiftKey">,
+  event: Pick<KeyboardShortcutEventLike, "altKey" | "key" | "code" | "shiftKey">,
+  layout: KeyboardLayoutSnapshot = DEFAULT_KEYBOARD_LAYOUT_SNAPSHOT,
 ): string {
   if (event.key === " ") return "Space";
   if (event.shiftKey && event.code === "Slash") return "/";
+  if (
+    (event.altKey || event.shiftKey) &&
+    event.code &&
+    SUPPORTED_KEYBOARD_CODE_SET.has(event.code)
+  ) {
+    const code = event.code as SupportedKeyboardCode;
+    return normalizeKeyName(layout.entries[code] ?? DEFAULT_KEY_BY_CODE[code]);
+  }
   if (event.key && event.key !== "Unidentified") {
     return normalizeKeyName(event.key);
   }

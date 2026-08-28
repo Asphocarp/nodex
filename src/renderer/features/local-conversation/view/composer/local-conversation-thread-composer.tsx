@@ -107,6 +107,7 @@ import {
   isComposerDictationShortcutTargetBlocked,
   useComposerDictation,
 } from "./use-composer-dictation";
+import { resolveComposerGlobalDictationAdmission } from "./composer-global-dictation-admission";
 import {
   ContextWindowIndicator,
   invoke,
@@ -2221,8 +2222,13 @@ function HydratedThreadComposer({
   clearQueuedFollowUpEdit,
   intelligenceController,
 }: HydratedThreadComposerProps) {
-  const { floating: isFloatingComposer } = useRightPanelComposerPresentation();
+  const {
+    floating: isFloatingComposer,
+    presentation: composerPresentation,
+    visible: composerVisible,
+  } = useRightPanelComposerPresentation();
   const composerScopeKey = useScopeHandle(ComposerScope).path;
+  const [globalDictationTargetId] = useState(() => `composer:${crypto.randomUUID()}`);
   const threadScopePath = useScopeHandle(ThreadScope).path;
   const canStartNewThread = canStartNewThreadTarget(model);
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
@@ -3408,6 +3414,17 @@ function HydratedThreadComposer({
     cancelDictation,
   } = useComposerDictation({
     enabled: isDictationSupported,
+    globalTarget: {
+      id: globalDictationTargetId,
+      priority: isFloatingComposer ? 20 : 10,
+      admission: () =>
+        resolveComposerGlobalDictationAdmission({
+          floating: isFloatingComposer,
+          visible: composerVisible,
+          expanded: composerPresentation === "expanded",
+          editor: promptEditorRef.current?.getElement() ?? null,
+        }),
+    },
     onTranscriptInsert: (transcript) => {
       insertDictationTranscript(transcript);
     },

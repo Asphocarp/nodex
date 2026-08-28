@@ -88,6 +88,7 @@ function PromptHistoryHarness({
     };
 
     editorRef.current = {
+      getElement: () => null,
       focus: () => {
         focusCountRef.current += 1;
       },

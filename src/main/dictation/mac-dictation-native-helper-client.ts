@@ -1,12 +1,14 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import type { MacNativeHotkeySpec } from "../../shared/command-keybindings";
 
 const MAXIMUM_LINE_BYTES = 64 * 1024;
+const MAXIMUM_STDERR_BYTES = 8 * 1024;
 const REQUEST_TIMEOUT_MS = 12_000;
 const READY_TIMEOUT_MS = 3_000;
+const PROTOCOL_VERSION = 2;
 
 export interface MacDictationForegroundTarget {
   readonly pid: number;
@@ -18,10 +20,18 @@ export type MacDictationHelperEvent =
       readonly type: "pressed" | "released";
       readonly bindingId: string;
       readonly mode: "hold" | "toggle";
-      readonly generation: number;
+      readonly configurationGeneration: number;
+      readonly processGeneration: number;
+      readonly sequence: number;
       readonly target?: MacDictationForegroundTarget;
     }
-  | { readonly type: "crashed" };
+  | {
+      readonly type: "crashed";
+      readonly processGeneration: number;
+      readonly exitCode: number | null;
+      readonly signal: NodeJS.Signals | null;
+      readonly diagnostic: string | null;
+    };
 
 export interface MacDictationCapabilities {
   readonly inputMonitoring: boolean;
@@ -32,6 +42,17 @@ interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly timeout: ReturnType<typeof setTimeout>;
+}
+
+/** Stable helper failure taxonomy lets callers separate invalid configuration from transport loss. */
+export class MacDictationHelperRequestError extends Error {
+  constructor(
+    readonly code: string,
+    message = `Dictation helper request failed: ${code}`,
+  ) {
+    super(message);
+    this.name = "MacDictationHelperRequestError";
+  }
 }
 
 export const resolveMacDictationHelperExecutable = (input: {
@@ -52,12 +73,12 @@ export class MacDictationNativeHelperClient {
   readonly #listeners = new Set<(event: MacDictationHelperEvent) => void>();
   readonly #pending = new Map<string, PendingRequest>();
   #child: ChildProcessWithoutNullStreams | null = null;
-  #stdoutBuffer = "";
   #ready: Promise<void> | null = null;
   #resolveReady: (() => void) | null = null;
   #rejectReady: ((error: Error) => void) | null = null;
   #readyTimer: ReturnType<typeof setTimeout> | null = null;
-  #crashTimestamps: number[] = [];
+  #processGeneration = 0;
+  #disposed = false;
 
   constructor(executablePath: string, options: { readonly validateArchitecture?: boolean } = {}) {
     this.#executablePath = executablePath;
@@ -71,8 +92,8 @@ export class MacDictationNativeHelperClient {
 
   async capabilities(_prompt = false): Promise<MacDictationCapabilities> {
     const value = (await this.#request("capabilities", {})) as Record<string, unknown>;
-    if (typeof value?.inputMonitoring !== "boolean" || typeof value.accessibility !== "boolean") {
-      throw new Error("Invalid dictation helper capabilities");
+    if (typeof value.inputMonitoring !== "boolean" || typeof value.accessibility !== "boolean") {
+      throw new MacDictationHelperRequestError("invalid-response");
     }
     return { inputMonitoring: value.inputMonitoring, accessibility: value.accessibility };
   }
@@ -85,21 +106,24 @@ export class MacDictationNativeHelperClient {
     return await this.#requestGranted("requestAccessibility");
   }
 
-  async register(input: {
-    readonly bindingId: string;
-    readonly mode: "hold" | "toggle";
-    readonly accelerator: string;
+  async replaceBindings(input: {
+    readonly generation: number;
+    readonly bindings: readonly MacNativeHotkeySpec[];
   }): Promise<void> {
-    await this.#request("register", input);
-  }
-
-  async unregister(bindingId: string): Promise<void> {
-    await this.#request("unregister", { bindingId });
+    const value = (await this.#request("replaceBindings", {
+      generation: input.generation,
+      bindings: input.bindings,
+    })) as Record<string, unknown>;
+    if (value.applied !== true || value.generation !== input.generation) {
+      throw new MacDictationHelperRequestError("invalid-response");
+    }
   }
 
   async captureFn(): Promise<"Fn"> {
     const value = (await this.#request("captureFn", {})) as { readonly accelerator?: unknown };
-    if (value.accelerator !== "Fn") throw new Error("Invalid captured Fn hotkey");
+    if (value.accelerator !== "Fn") {
+      throw new MacDictationHelperRequestError("invalid-response");
+    }
     return value.accelerator;
   }
 
@@ -110,25 +134,26 @@ export class MacDictationNativeHelperClient {
   async queryBuiltInMicrophoneName(): Promise<string | null> {
     const value = await this.#request("queryBuiltInMic", {});
     if (value === null) return null;
-    if (typeof value !== "string") throw new Error("Invalid built-in microphone name");
+    if (typeof value !== "string") throw new MacDictationHelperRequestError("invalid-response");
     return value;
   }
 
   async #requestGranted(type: string): Promise<boolean> {
     const value = (await this.#request(type, {})) as Record<string, unknown>;
-    if (typeof value?.granted !== "boolean") throw new Error("Invalid dictation permission result");
+    if (typeof value.granted !== "boolean") {
+      throw new MacDictationHelperRequestError("invalid-response");
+    }
     return value.granted;
   }
 
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     const child = this.#child;
     this.#child = null;
     child?.kill();
+    this.#resetReady(new Error("Dictation helper was disposed"));
     this.#rejectPending(new Error("Dictation helper was disposed"));
-    this.#rejectReady?.(new Error("Dictation helper was disposed"));
-    this.#rejectReady = null;
-    if (this.#readyTimer) clearTimeout(this.#readyTimer);
-    this.#readyTimer = null;
     this.#listeners.clear();
   }
 
@@ -153,12 +178,8 @@ export class MacDictationNativeHelperClient {
   }
 
   async #ensureStarted(): Promise<void> {
+    if (this.#disposed) throw new Error("Dictation helper was disposed");
     if (this.#child && this.#ready) return await this.#ready;
-    const now = Date.now();
-    this.#crashTimestamps = this.#crashTimestamps.filter((time) => now - time < 60_000);
-    if (this.#crashTimestamps.length >= 3) {
-      throw new Error("Dictation helper restart limit reached");
-    }
     const metadata = lstatSync(this.#executablePath);
     if (metadata.isSymbolicLink() || !metadata.isFile() || (metadata.mode & 0o111) === 0) {
       throw new Error("Dictation helper is not a regular executable");
@@ -174,8 +195,13 @@ export class MacDictationNativeHelperClient {
         throw new Error(`Dictation helper does not contain the ${expected} architecture`);
       }
     }
+
     const child = spawn(this.#executablePath, [], { stdio: ["pipe", "pipe", "pipe"] });
+    const processGeneration = this.#processGeneration + 1;
+    this.#processGeneration = processGeneration;
     this.#child = child;
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
     this.#ready = new Promise((resolveReady, rejectReady) => {
       this.#resolveReady = resolveReady;
       this.#rejectReady = rejectReady;
@@ -185,36 +211,48 @@ export class MacDictationNativeHelperClient {
       child.kill();
     }, READY_TIMEOUT_MS);
     child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => this.#readStdout(chunk));
-    child.stderr.resume();
-    child.once("exit", () => this.#handleExit(child));
+    child.stdout.on("data", (chunk: string) => {
+      stdoutBuffer += chunk;
+      if (Buffer.byteLength(stdoutBuffer, "utf8") > MAXIMUM_LINE_BYTES * 2) {
+        child.kill();
+        return;
+      }
+      let newline = stdoutBuffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = stdoutBuffer.slice(0, newline);
+        stdoutBuffer = stdoutBuffer.slice(newline + 1);
+        this.#handleLine(child, processGeneration, line);
+        newline = stdoutBuffer.indexOf("\n");
+      }
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderrBuffer = `${stderrBuffer}${chunk}`.slice(-MAXIMUM_STDERR_BYTES);
+    });
+    child.once("error", (error) =>
+      this.#handleExit(child, processGeneration, null, null, `${stderrBuffer}\n${error.message}`),
+    );
+    child.once("exit", (exitCode, signal) =>
+      this.#handleExit(child, processGeneration, exitCode, signal, stderrBuffer),
+    );
     return await this.#ready;
   }
 
-  #readStdout(chunk: string): void {
-    this.#stdoutBuffer += chunk;
-    if (Buffer.byteLength(this.#stdoutBuffer, "utf8") > MAXIMUM_LINE_BYTES * 2) {
-      this.#child?.kill();
+  #handleLine(
+    child: ChildProcessWithoutNullStreams,
+    processGeneration: number,
+    line: string,
+  ): void {
+    if (this.#child !== child || !line || Buffer.byteLength(line, "utf8") > MAXIMUM_LINE_BYTES) {
       return;
     }
-    let newline = this.#stdoutBuffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = this.#stdoutBuffer.slice(0, newline);
-      this.#stdoutBuffer = this.#stdoutBuffer.slice(newline + 1);
-      this.#handleLine(line);
-      newline = this.#stdoutBuffer.indexOf("\n");
-    }
-  }
-
-  #handleLine(line: string): void {
-    if (!line || Buffer.byteLength(line, "utf8") > MAXIMUM_LINE_BYTES) return;
     let message: Record<string, unknown>;
     try {
       message = JSON.parse(line) as Record<string, unknown>;
     } catch {
       return;
     }
-    if (message.type === "ready" && message.protocolVersion === 1) {
+    if (message.type === "ready" && message.protocolVersion === PROTOCOL_VERSION) {
       this.#resolveReady?.();
       this.#resolveReady = null;
       this.#rejectReady = null;
@@ -228,14 +266,15 @@ export class MacDictationNativeHelperClient {
       clearTimeout(pending.timeout);
       this.#pending.delete(message.id);
       if (message.ok === true) pending.resolve(message.value);
-      else pending.reject(new Error(String(message.error ?? "Dictation helper request failed")));
+      else pending.reject(new MacDictationHelperRequestError(String(message.error ?? "unknown")));
       return;
     }
     if (
       (message.type === "pressed" || message.type === "released") &&
       typeof message.bindingId === "string" &&
       (message.mode === "hold" || message.mode === "toggle") &&
-      typeof message.generation === "number"
+      typeof message.configurationGeneration === "number" &&
+      typeof message.sequence === "number"
     ) {
       const targetValue = message.target as Record<string, unknown> | undefined;
       const target =
@@ -248,25 +287,42 @@ export class MacDictationNativeHelperClient {
         type: message.type,
         bindingId: message.bindingId,
         mode: message.mode,
-        generation: message.generation,
+        configurationGeneration: message.configurationGeneration,
+        processGeneration,
+        sequence: message.sequence,
         ...(target ? { target } : {}),
       });
     }
   }
 
-  #handleExit(child: ChildProcessWithoutNullStreams): void {
+  #handleExit(
+    child: ChildProcessWithoutNullStreams,
+    processGeneration: number,
+    exitCode: number | null,
+    signal: NodeJS.Signals | null,
+    stderr: string,
+  ): void {
     if (this.#child !== child) return;
     this.#child = null;
+    this.#resetReady(new Error("Dictation helper exited before becoming ready"));
+    this.#rejectPending(new Error("Dictation helper exited"));
+    if (this.#disposed) return;
+    this.#emit({
+      type: "crashed",
+      processGeneration,
+      exitCode,
+      signal,
+      diagnostic: stderr.trim() || null,
+    });
+  }
+
+  #resetReady(error: Error): void {
     if (this.#readyTimer) clearTimeout(this.#readyTimer);
     this.#readyTimer = null;
-    this.#rejectReady?.(new Error("Dictation helper exited before becoming ready"));
+    this.#rejectReady?.(error);
     this.#ready = null;
     this.#resolveReady = null;
     this.#rejectReady = null;
-    this.#stdoutBuffer = "";
-    this.#crashTimestamps.push(Date.now());
-    this.#rejectPending(new Error("Dictation helper exited"));
-    this.#emit({ type: "crashed" });
   }
 
   #rejectPending(error: Error): void {

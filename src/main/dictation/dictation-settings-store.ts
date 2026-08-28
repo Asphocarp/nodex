@@ -108,6 +108,23 @@ export class DictationSettingsStore {
     return this.#serialize(() => this.#readCurrent());
   }
 
+  /** Distinguishes an explicit user choice from the first-run derived default. */
+  readKeepGlobalBarVisiblePreference(): Promise<boolean | null> {
+    return this.#serialize(async () => {
+      const stored = await this.#readStored();
+      if (stored === null) return null;
+      if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+        throw new Error("Dictation settings must be an object");
+      }
+      const value = (stored as Record<string, unknown>).keepGlobalBarVisible;
+      if (value === undefined) return null;
+      if (typeof value !== "boolean") {
+        throw new Error("Dictation keep-visible preference is invalid");
+      }
+      return value;
+    });
+  }
+
   update(value: unknown): Promise<DictationSettings> {
     const patch = parseDictationSettingsPatch(value);
     return this.#serialize(async () => {
@@ -131,6 +148,11 @@ export class DictationSettingsStore {
   }
 
   async #readCurrent(): Promise<DictationSettings> {
+    const stored = await this.#readStored();
+    return stored === null ? DEFAULT_DICTATION_SETTINGS : parseSettings(stored);
+  }
+
+  async #readStored(): Promise<unknown | null> {
     try {
       const metadata = await lstat(this.#filePath);
       if (metadata.isSymbolicLink() || !metadata.isFile()) {
@@ -139,9 +161,9 @@ export class DictationSettingsStore {
       if (metadata.size > MAX_SETTINGS_BYTES) {
         throw new Error("Dictation settings exceed the size limit");
       }
-      return parseSettings(JSON.parse(await readFile(this.#filePath, "utf8")));
+      return JSON.parse(await readFile(this.#filePath, "utf8")) as unknown;
     } catch (error) {
-      if (isMissingPathError(error)) return DEFAULT_DICTATION_SETTINGS;
+      if (isMissingPathError(error)) return null;
       throw error;
     }
   }

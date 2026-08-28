@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow, screen, type BrowserWindowConstructorOptions } from "electron";
 import { APP_RENDERER_URL } from "../../shared/app-renderer-policy";
 import {
   GLOBAL_DICTATION_COMMAND_CHANNEL,
@@ -23,7 +23,7 @@ export const resolveGlobalDictationBounds = (workArea: {
   readonly height: number;
 }) => ({
   x: Math.round(workArea.x + (workArea.width - WIDTH) / 2),
-  y: workArea.y + workArea.height - HEIGHT - BOTTOM_MARGIN,
+  y: Math.max(workArea.y, workArea.y + workArea.height - HEIGHT - BOTTOM_MARGIN),
   width: WIDTH,
   height: HEIGHT,
 });
@@ -33,6 +33,25 @@ type GlobalDictationNativeWindow = Pick<
   "setAlwaysOnTop" | "setIgnoreMouseEvents" | "setVisibleOnAllWorkspaces"
 >;
 
+/** Invalidates renderer-ready presentation work as soon as a newer visibility decision wins. */
+export class GlobalDictationPresentationGate {
+  #generation = 0;
+
+  begin(): number {
+    return ++this.#generation;
+  }
+
+  invalidate(): void {
+    this.#generation += 1;
+  }
+
+  isCurrent(generation: number): boolean {
+    return generation === this.#generation;
+  }
+}
+
+export type GlobalDictationWindowTerminalReason = "intentional" | "unexpected";
+
 /** Configures the overlay without converting the foreground app into a Dock-less UI element. */
 export function configureGlobalDictationNativeWindow(window: GlobalDictationNativeWindow): void {
   window.setAlwaysOnTop(true, "floating");
@@ -40,16 +59,51 @@ export function configureGlobalDictationNativeWindow(window: GlobalDictationNati
     skipTransformProcessType: true,
     visibleOnFullScreen: true,
   });
-  window.setIgnoreMouseEvents(true, { forward: true });
+  window.setIgnoreMouseEvents(true, { forward: false });
 }
+
+export const createGlobalDictationWindowOptions = (
+  preloadPath: string,
+  platform: NodeJS.Platform = process.platform,
+): BrowserWindowConstructorOptions => ({
+  title: "Dictation",
+  width: WIDTH,
+  height: HEIGHT,
+  frame: false,
+  transparent: true,
+  resizable: false,
+  minimizable: false,
+  maximizable: false,
+  fullscreenable: false,
+  focusable: false,
+  show: false,
+  skipTaskbar: true,
+  hasShadow: false,
+  acceptFirstMouse: true,
+  ...(platform === "darwin" ? { type: "panel" as const } : {}),
+  webPreferences: {
+    preload: preloadPath,
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    backgroundThrottling: false,
+  },
+});
 
 /** Owns the auxiliary window without registering it as a restorable WindowSession. */
 export class GlobalDictationWindowController {
   readonly #preloadPath: string;
   readonly #rendererUrl: string;
+  readonly #presentationGate = new GlobalDictationPresentationGate();
   #window: BrowserWindow | null = null;
-  #generation = 0;
-  readonly #terminalListeners = new Set<(webContentsId: number) => void>();
+  #windowGeneration = 0;
+  #rendererReadyWebContentsId: number | null = null;
+  #resolveRendererReady: ((ready: boolean) => void) | null = null;
+  #rendererReady: Promise<boolean> = Promise.resolve(false);
+  readonly #intentionalCloseWebContentsIds = new Set<number>();
+  readonly #terminalListeners = new Set<
+    (webContentsId: number, reason: GlobalDictationWindowTerminalReason) => void
+  >();
 
   constructor(options?: { readonly preloadPath?: string; readonly rendererUrl?: string }) {
     this.#preloadPath =
@@ -58,45 +112,38 @@ export class GlobalDictationWindowController {
       options?.rendererUrl ?? process.env.ELECTRON_RENDERER_URL ?? APP_RENDERER_URL;
   }
 
-  subscribeTerminal(listener: (webContentsId: number) => void): () => void {
+  subscribeTerminal(
+    listener: (webContentsId: number, reason: GlobalDictationWindowTerminalReason) => void,
+  ): () => void {
     this.#terminalListeners.add(listener);
     return () => this.#terminalListeners.delete(listener);
   }
 
   ensureWindow(): BrowserWindow {
     if (this.#window && !this.#window.isDestroyed()) return this.#window;
-    const window = new BrowserWindow({
-      width: WIDTH,
-      height: HEIGHT,
-      frame: false,
-      transparent: true,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      focusable: false,
-      show: false,
-      skipTaskbar: true,
-      hasShadow: false,
-      webPreferences: {
-        preload: this.#preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        backgroundThrottling: false,
-      },
-    });
+    const window = new BrowserWindow(createGlobalDictationWindowOptions(this.#preloadPath));
     configureGlobalDictationNativeWindow(window);
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    const generation = ++this.#generation;
+    const generation = ++this.#windowGeneration;
     const webContentsId = window.webContents.id;
+    this.#rendererReadyWebContentsId = null;
+    this.#rendererReady = new Promise<boolean>((resolve) => {
+      this.#resolveRendererReady = resolve;
+    });
     let terminalReported = false;
     const reportTerminal = (): void => {
       if (terminalReported) return;
       terminalReported = true;
-      if (this.#window === window && this.#generation === generation) this.#window = null;
-      for (const listener of this.#terminalListeners) listener(webContentsId);
+      if (this.#window === window && this.#windowGeneration === generation) {
+        this.#window = null;
+        this.#rendererReadyWebContentsId = null;
+        this.#resolveRendererReady?.(false);
+        this.#resolveRendererReady = null;
+      }
+      const reason = this.#intentionalCloseWebContentsIds.delete(webContentsId)
+        ? "intentional"
+        : "unexpected";
+      for (const listener of this.#terminalListeners) listener(webContentsId, reason);
       if (!window.isDestroyed()) window.destroy();
     };
     window.on("closed", reportTerminal);
@@ -113,20 +160,56 @@ export class GlobalDictationWindowController {
     return this.#window?.isDestroyed() === false && this.#window.webContents.id === webContentsId;
   }
 
-  show(): void {
-    const window = this.ensureWindow();
-    this.reposition();
-    window.showInactive();
+  markRendererReady(webContentsId: number): boolean {
+    if (!this.ownsWebContents(webContentsId)) return false;
+    this.#rendererReadyWebContentsId = webContentsId;
+    this.#resolveRendererReady?.(true);
+    this.#resolveRendererReady = null;
+    return true;
+  }
+
+  prewarm(): void {
+    try {
+      this.ensureWindow();
+    } catch {
+      // A later activation retries window creation; helper registration stays healthy.
+    }
+  }
+
+  async showIdle(
+    command: Extract<GlobalDictationRendererCommand, { type: "idle" }>,
+  ): Promise<boolean> {
+    return await this.#showWithCommand(command, true, this.#presentationGate.begin());
+  }
+
+  async showAndStart(
+    command: Extract<GlobalDictationRendererCommand, { type: "start" }>,
+  ): Promise<boolean> {
+    return await this.#showWithCommand(command, false, this.#presentationGate.begin());
   }
 
   hide(): void {
+    this.#presentationGate.invalidate();
     if (!this.#window || this.#window.isDestroyed()) return;
+    this.#window.setIgnoreMouseEvents(true, { forward: false });
     this.#window.hide();
-    this.#window.setIgnoreMouseEvents(true, { forward: true });
+  }
+
+  close(): void {
+    this.#presentationGate.invalidate();
+    const window = this.#window;
+    if (!window || window.isDestroyed()) return;
+    this.#window = null;
+    this.#rendererReadyWebContentsId = null;
+    this.#resolveRendererReady?.(false);
+    this.#resolveRendererReady = null;
+    this.#intentionalCloseWebContentsIds.add(window.webContents.id);
+    window.close();
   }
 
   send(command: GlobalDictationRendererCommand): boolean {
-    const window = this.ensureWindow();
+    const window = this.#window;
+    if (!window) return false;
     if (
       window.isDestroyed() ||
       window.webContents.isLoading() ||
@@ -144,7 +227,43 @@ export class GlobalDictationWindowController {
 
   setInteractive(enabled: boolean): void {
     if (!this.#window || this.#window.isDestroyed()) return;
-    this.#window.setIgnoreMouseEvents(!enabled, { forward: true });
+    if (!this.#window.isVisible()) {
+      this.#window.setIgnoreMouseEvents(true, { forward: false });
+      return;
+    }
+    if (enabled) {
+      this.#window.setIgnoreMouseEvents(false);
+      return;
+    }
+    this.#window.setIgnoreMouseEvents(true, { forward: true });
+  }
+
+  async #showWithCommand(
+    command: GlobalDictationRendererCommand,
+    pointerInteractive: boolean,
+    presentationGeneration: number,
+  ): Promise<boolean> {
+    try {
+      const window = this.ensureWindow();
+      const webContentsId = window.webContents.id;
+      const ready =
+        this.#rendererReadyWebContentsId === webContentsId ? true : await this.#rendererReady;
+      if (
+        !ready ||
+        !this.#presentationGate.isCurrent(presentationGeneration) ||
+        !this.ownsWebContents(webContentsId)
+      ) {
+        return false;
+      }
+      this.reposition();
+      window.setAlwaysOnTop(true, "floating");
+      if (!this.send(command)) return false;
+      window.showInactive();
+      this.setInteractive(pointerInteractive);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   reposition(): void {
@@ -154,9 +273,17 @@ export class GlobalDictationWindowController {
   }
 
   dispose(): void {
+    this.#presentationGate.invalidate();
     const window = this.#window;
     this.#window = null;
+    this.#rendererReadyWebContentsId = null;
+    this.#resolveRendererReady?.(false);
+    this.#resolveRendererReady = null;
+    if (window && !window.isDestroyed()) {
+      this.#intentionalCloseWebContentsIds.add(window.webContents.id);
+    }
     window?.destroy();
+    this.#intentionalCloseWebContentsIds.clear();
     this.#terminalListeners.clear();
   }
 }

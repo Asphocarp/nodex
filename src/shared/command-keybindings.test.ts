@@ -2,6 +2,8 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   applyCommandKeybindingUpdate,
   CODEX_COMMAND_REGISTRY,
+  compileMacNativeHotkey,
+  createKeyboardLayoutSnapshot,
   createCommandKeymapState,
   findCommandKeybindingConflict,
   formatAcceleratorAriaKeyShortcut,
@@ -13,6 +15,7 @@ import {
   matchesKeyboardEventToCommand,
   matchesMouseEventToCommand,
   normalizeAccelerator,
+  normalizeCommandKeybindingOverrides,
   NEXT_PANEL_TAB_COMMAND_ID,
   PREVIOUS_PANEL_TAB_COMMAND_ID,
   resolveRuntimePlatform,
@@ -176,6 +179,22 @@ describe("command keybindings", () => {
     expect(matchesMouseEventToCommand({ button: 4 }, state, "navigateForward")).toBe(true);
   });
 
+  test("captures Alt chords from their physical code instead of the Option-produced character", () => {
+    expect(
+      keyboardEventToAccelerator(keyboardEvent("¥", { altKey: true, code: "KeyY" }), "macOS"),
+    ).toBe("Alt+Y");
+    expect(
+      keyboardEventToAccelerator(keyboardEvent("å", { altKey: true, code: "KeyA" }), "macOS"),
+    ).toBe("Alt+A");
+
+    const dvorak = createKeyboardLayoutSnapshot(4, { KeyY: "f", KeyA: "a" });
+    expect(
+      keyboardEventToAccelerator(keyboardEvent("ƒ", { altKey: true, code: "KeyY" }), "macOS", {
+        keyboardLayout: dvorak,
+      }),
+    ).toBe("Alt+F");
+  });
+
   test("applies set append remove and reset update shapes", () => {
     const setOverrides = applyCommandKeybindingUpdate(
       {},
@@ -264,6 +283,65 @@ describe("command keybindings", () => {
     );
     expect(setGlobalHold("Ctrl+Y").globalDictationHold).toEqual(["Ctrl+Y"]);
     expect(setGlobalHold("Alt+Y").globalDictationHold).toEqual(["Alt+Y"]);
+    expect(() => setGlobalHold("Alt+¥")).toThrow("This shortcut key is not supported.");
+  });
+
+  test("compiles canonical global shortcuts through the current keyboard layout", () => {
+    expect(
+      compileMacNativeHotkey({
+        accelerator: "Alt+Y",
+        bindingId: "global-dictation-hold",
+        mode: "hold",
+      }),
+    ).toEqual({
+      type: "compiled",
+      spec: {
+        bindingId: "global-dictation-hold",
+        mode: "hold",
+        modifiers: ["option"],
+        keyCode: 16,
+        bareModifierKeyCodes: null,
+      },
+    });
+
+    const dvorak = createKeyboardLayoutSnapshot(5, {
+      KeyF: "u",
+      KeyK: "t",
+      KeyU: "g",
+      KeyY: "f",
+    });
+    expect(
+      compileMacNativeHotkey({
+        accelerator: "Alt+F",
+        bindingId: "global-dictation-toggle",
+        mode: "toggle",
+        layout: dvorak,
+      }),
+    ).toMatchObject({ type: "compiled", spec: { keyCode: 16 } });
+  });
+
+  test("drops persisted global bindings outside the finite native key domain", () => {
+    expect(
+      normalizeCommandKeybindingOverrides(
+        {
+          globalDictationHold: ["Alt+¥"],
+          globalDictationToggle: ["Alt+Y"],
+          renameThread: ["CmdOrCtrl+Alt+Ω"],
+        },
+        "macOS",
+      ),
+    ).toEqual({
+      globalDictationToggle: ["Alt+Y"],
+      renameThread: ["CmdOrCtrl+Alt+Ω"],
+    });
+    const migrated = createCommandKeymapState(
+      normalizeCommandKeybindingOverrides({ globalDictationHold: ["Alt+¥"] }, "macOS"),
+      "macOS",
+    );
+    expect(migrated.entries.find((entry) => entry.id === "globalDictationHold")).toMatchObject({
+      isCustom: false,
+      keybindings: [],
+    });
   });
 
   test("accepts only supported macOS bare global modifiers", () => {

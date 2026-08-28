@@ -121,15 +121,19 @@ export function KeyboardShortcutsSettingsPage() {
   const updateMutation = useMutation({
     mutationFn: ({ commandId, update }: CommitPayload) =>
       invoke("set-codex-command-keybinding", commandId, update),
-    onSuccess: (nextState) => {
-      queryClient.setQueryData(queryKeys.settings.commandKeymap(), nextState);
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.settings.commandKeymap(), result.state);
     },
   });
 
   const resetAllMutation = useMutation({
     mutationFn: () => invoke("reset-codex-command-keybindings"),
-    onSuccess: (nextState) => {
-      queryClient.setQueryData(queryKeys.settings.commandKeymap(), nextState);
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.settings.commandKeymap(), result.state);
+      if (result.type === "rejected") {
+        setResetAllError(result.reason.message);
+        return;
+      }
       setResetAllOpen(false);
       setResetAllError(null);
     },
@@ -149,7 +153,11 @@ export function KeyboardShortcutsSettingsPage() {
   const commitUpdate = async (commandId: string, update: CommandKeybindingUpdate) => {
     setRowErrors((current) => ({ ...current, [commandId]: "" }));
     try {
-      await updateMutation.mutateAsync({ commandId, update });
+      const result = await updateMutation.mutateAsync({ commandId, update });
+      if (result.type === "rejected") {
+        setRowErrors((current) => ({ ...current, [commandId]: result.reason.message }));
+        return;
+      }
       setCapture(null);
     } catch (error) {
       setRowErrors((current) => ({ ...current, [commandId]: mutationErrorMessage(error) }));

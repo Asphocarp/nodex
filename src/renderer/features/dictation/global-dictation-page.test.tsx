@@ -4,61 +4,81 @@ import { GlobalDictationBar, GlobalDictationRoot } from "./global-dictation-page
 
 describe("GlobalDictationBar", () => {
   it("exposes retry and dismiss actions in an actionable error state", () => {
-    const onCancel = vi.fn();
+    const onDismiss = vi.fn();
     const onRetry = vi.fn();
     render(
       <GlobalDictationBar
         state="error"
         waveform={[]}
         error={{ kind: "paste-failed", operation: "paste", retryable: true }}
-        onCancel={onCancel}
+        onDismiss={onDismiss}
         onRetry={onRetry}
+        onClose={() => undefined}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(onRetry).toHaveBeenCalledOnce();
-    expect(onCancel).toHaveBeenCalledOnce();
-    expect(screen.getByText("Couldn’t paste text")).toBeTruthy();
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(screen.getAllByText("Couldn’t paste text")).toHaveLength(2);
   });
 
-  it("offers the macOS settings shortcut when Accessibility blocks paste", () => {
-    const onOpenSettings = vi.fn();
+  it("keeps permission errors compact and actionable", () => {
     render(
       <GlobalDictationBar
         state="error"
         waveform={[]}
         error={{ kind: "accessibility-denied", operation: "paste", retryable: true }}
-        onCancel={() => undefined}
-        onOpenSettings={onOpenSettings}
+        onDismiss={() => undefined}
         onRetry={() => undefined}
+        onClose={() => undefined}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
-    expect(onOpenSettings).toHaveBeenCalledOnce();
-    expect(screen.getByText("Accessibility access is required")).toBeTruthy();
+    expect(screen.getAllByText("Accessibility access is required")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Open Settings" })).toBeNull();
   });
 
   it("renders the live waveform without adding retry during capture", () => {
     const { container } = render(
       <GlobalDictationBar
         state="listening"
-        waveform={[0.2, 0.8, 0.4]}
-        onCancel={() => undefined}
+        waveform={[0.02, 0.08, 0.04, 0.06]}
+        onDismiss={() => undefined}
         onRetry={() => undefined}
+        onClose={() => undefined}
       />,
     );
     expect(screen.getByText("Listening")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-    expect(container.querySelectorAll("span[style]")).toHaveLength(48);
+    expect(container.querySelectorAll("canvas")).toHaveLength(1);
+  });
+
+  it("replaces the waveform with the transcribing status as soon as capture stops", () => {
+    const props = {
+      waveform: [0.02, 0.08, 0.04, 0.06],
+      onDismiss: () => undefined,
+      onRetry: () => undefined,
+      onClose: () => undefined,
+    } as const;
+    const { container, rerender } = render(<GlobalDictationBar state="listening" {...props} />);
+    expect(container.querySelector("canvas")).not.toBeNull();
+
+    rerender(<GlobalDictationBar state="transcribing" {...props} />);
+
+    expect(container.querySelector("canvas")).toBeNull();
+    expect(screen.getByText("Transcribing…")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });
 
 describe("GlobalDictationRoot", () => {
   it("announces readiness through the restricted bridge", async () => {
-    const sendEvent = vi.fn(async () => undefined);
+    const sendEvent = vi.fn(async () => true);
+    const commandHandlers: Array<
+      (command: import("../../../shared/global-dictation").GlobalDictationRendererCommand) => void
+    > = [];
     const descriptor = Object.getOwnPropertyDescriptor(window, "globalDictation");
     Object.defineProperty(window, "globalDictation", {
       configurable: true,
@@ -74,14 +94,26 @@ describe("GlobalDictationRoot", () => {
                 dictionary: [],
               }
             : null,
-        onCommand: () => () => undefined,
+        onCommand: (callback: (typeof commandHandlers)[number]) => {
+          commandHandlers.push(callback);
+          return () => {
+            commandHandlers.length = 0;
+          };
+        },
         sendEvent,
+        showContextMenu: async () => null,
       },
     });
     try {
       render(<GlobalDictationRoot />);
       await vi.waitFor(() => expect(sendEvent).toHaveBeenCalledWith({ type: "ready" }));
-      expect(screen.getByText("Ready")).toBeTruthy();
+      expect(screen.queryByText("Dictation ready")).toBeNull();
+      commandHandlers[0]?.({
+        type: "idle",
+        configuredHotkey: "Fn",
+        configuredToggleHotkey: "Command+Shift+D",
+      });
+      await screen.findByText("Dictation ready");
     } finally {
       if (descriptor) Object.defineProperty(window, "globalDictation", descriptor);
       else Reflect.deleteProperty(window, "globalDictation");

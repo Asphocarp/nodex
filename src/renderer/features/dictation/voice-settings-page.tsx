@@ -168,8 +168,11 @@ export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string
   const updateShortcut = useMutation({
     mutationFn: (input: { readonly commandId: string; readonly update: CommandKeybindingUpdate }) =>
       invoke("set-codex-command-keybinding", input.commandId, input.update),
-    onSuccess: (state) => {
-      queryClient.setQueryData(queryKeys.settings.commandKeymap(), state);
+    onSuccess: async (result) => {
+      queryClient.setQueryData(queryKeys.settings.commandKeymap(), result.state);
+      if (result.type === "applied") {
+        await queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
+      }
     },
   });
   const settings: DictationSettings | undefined = settingsQuery.data;
@@ -225,7 +228,13 @@ export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string
     if (!accelerator && !existing) return;
 
     try {
-      await updateShortcut.mutateAsync({ commandId: entry.id, update });
+      const result = await updateShortcut.mutateAsync({ commandId: entry.id, update });
+      if (result.type === "rejected") {
+        setShortcutErrors((current) => ({
+          ...current,
+          [entry.id]: result.reason.message,
+        }));
+      }
     } catch (error) {
       setShortcutErrors((current) => ({
         ...current,

@@ -17,6 +17,7 @@ import type {
   StructuralClipboardWriteResult,
 } from "../shared/clipboard-paste";
 import type {
+  GlobalDictationContextMenuAction,
   GlobalDictationRendererCommand,
   GlobalDictationRendererEvent,
 } from "../shared/global-dictation";
@@ -99,6 +100,7 @@ declare global {
       invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
       onCommand: (callback: (command: GlobalDictationRendererCommand) => void) => () => void;
       sendEvent: (event: GlobalDictationRendererEvent) => Promise<boolean>;
+      showContextMenu: () => Promise<GlobalDictationContextMenuAction>;
     };
   }
 }
