@@ -3,9 +3,8 @@ import { useCallback, useEffect, useMemo, useState, type ComponentType } from "r
 import { createReactInlineContentSpec } from "@blocknote/react";
 import { ArrowUpRight, Copy, Link2 } from "@/components/shared/icons/generic-icons";
 
-import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverTrigger } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { readManagedAssetPreview } from "@/lib/assets";
 import { invoke } from "@/lib/api";
 import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
@@ -13,39 +12,29 @@ import { attachmentInlineContentConfig } from "../../../../shared/block-document
 import { formatAttachmentBytes } from "./attachment-chip-format";
 import { AttachmentResourceIcon } from "../attachment-resource-icon";
 import { getAttachmentTooltipLines } from "./attachment-chip-tooltip";
-import type { ManagedFolderManifest } from "../../../../shared/managed-assets";
 import { parsePageFileSource } from "../../../../shared/page-files";
-import { usePageFilePlacementRuntime, type PageFilePlacementRuntime } from "./page-file-runtime";
+import { usePageFilePlacementRuntime } from "./page-file-runtime";
 import { InlineReferenceVisual } from "../inline-reference-visual";
+import {
+  isTextLikeMimeType,
+  useAttachmentPreview,
+  type AttachmentPreviewData,
+  type AttachmentPreviewInput,
+  type AttachmentPreviewState,
+} from "./attachment-preview";
+import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 
-export type AttachmentPreview =
-  | { type: "text"; content: string; truncated: boolean }
-  | { type: "folder"; manifest: ManagedFolderManifest }
-  | null;
+export { isTextLikeMimeType };
+export type { AttachmentPreviewState };
+export type AttachmentPreview = AttachmentPreviewData;
 
-export interface AttachmentProps {
-  kind: "text" | "file" | "folder";
-  mode: "materialized" | "link";
-  source: string;
+export interface AttachmentProps extends AttachmentPreviewInput {
   name: string;
-  mimeType?: string;
   bytes?: number;
   origin?: string;
 }
 
 const ATTACHMENT_INLINE_LABEL_LIMIT = 48;
-
-export function isTextLikeMimeType(mimeType: string): boolean {
-  if (!mimeType) return false;
-  return (
-    mimeType.startsWith("text/") ||
-    mimeType === "application/json" ||
-    mimeType === "application/sql" ||
-    mimeType === "application/toml" ||
-    mimeType === "application/xml" ||
-    mimeType === "application/yaml"
-  );
-}
 
 function getAttachmentSizeLabel(props: Pick<AttachmentProps, "kind" | "bytes">): string {
   if (props.kind === "folder") return "";
@@ -62,87 +51,17 @@ export function getAttachmentLabel(
   return label.length > maxLength ? `${label.slice(0, maxLength).trimEnd()}...` : label;
 }
 
-function canPreviewAttachment(
-  props: AttachmentProps,
-  pageFileRuntime: PageFilePlacementRuntime | null,
-): boolean {
-  if (props.mode !== "materialized") return false;
-  const isOwnedFile = parsePageFileSource(props.source) !== null;
-  if (!props.source.startsWith("nodex://assets/") && !(isOwnedFile && pageFileRuntime))
-    return false;
-  if (props.kind === "folder" || props.kind === "text") return true;
-  return isTextLikeMimeType(props.mimeType ?? "");
-}
-
-async function loadAttachmentPreview(
-  props: AttachmentProps,
-  pageFileRuntime: PageFilePlacementRuntime | null,
-): Promise<AttachmentPreview> {
-  if (!canPreviewAttachment(props, pageFileRuntime)) return null;
-
-  try {
-    if (parsePageFileSource(props.source) && pageFileRuntime) {
-      const file = await pageFileRuntime.read(props.source);
-      const previewLimit = 64 * 1024;
-      const previewBytes = file.bytes.subarray(0, previewLimit);
-      return {
-        type: "text",
-        content: new TextDecoder().decode(previewBytes),
-        truncated: file.bytes.byteLength > previewLimit,
-      };
-    }
-    const preview = await readManagedAssetPreview({
-      source: props.source,
-      kind: props.kind === "folder" ? "folder" : "text",
-    });
-    return preview.kind === "folder"
-      ? { type: "folder", manifest: preview.manifest }
-      : {
-          type: "text",
-          content: preview.content,
-          truncated: preview.truncated,
-        };
-  } catch {
-    return null;
-  }
-}
-
 function AttachmentPopover({
   props,
+  previewState,
   onPrimaryOpen,
 }: {
   props: AttachmentProps;
+  previewState: AttachmentPreviewState;
   onPrimaryOpen: () => Promise<void>;
 }) {
-  const [preview, setPreview] = useState<AttachmentPreview>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
   const { opener } = useFileLinkOpener();
-  const pageFileRuntime = usePageFilePlacementRuntime();
   const isOwnedFile = parsePageFileSource(props.source) !== null;
-
-  useEffect(() => {
-    if (!canPreviewAttachment(props, pageFileRuntime)) return;
-
-    let cancelled = false;
-    const run = async () => {
-      setPreviewLoading(true);
-      try {
-        const nextPreview = await loadAttachmentPreview(props, pageFileRuntime);
-        if (!cancelled) {
-          setPreview(nextPreview);
-        }
-      } finally {
-        if (!cancelled) {
-          setPreviewLoading(false);
-        }
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [pageFileRuntime, props]);
 
   const sizeLabel = getAttachmentSizeLabel(props);
   const stateLabel = isOwnedFile
@@ -152,7 +71,6 @@ function AttachmentPopover({
       : "Linked to the original";
   const hasOriginal =
     typeof props.origin === "string" && props.origin.length > 0 && props.origin !== props.source;
-  const previewAvailable = canPreviewAttachment(props, pageFileRuntime);
 
   const resolvePrimaryPath = useCallback(async (): Promise<string | null> => {
     if (props.mode === "link") return props.source || null;
@@ -187,9 +105,7 @@ function AttachmentPopover({
   return (
     <AttachmentPopoverView
       attachment={props}
-      preview={preview}
-      previewAvailable={previewAvailable}
-      previewLoading={previewLoading}
+      previewState={previewState}
       isOwnedFile={isOwnedFile}
       stateLabel={stateLabel}
       sizeLabel={sizeLabel}
@@ -203,9 +119,7 @@ function AttachmentPopover({
 
 export function AttachmentPopoverView({
   attachment,
-  preview,
-  previewAvailable,
-  previewLoading,
+  previewState,
   isOwnedFile,
   stateLabel,
   sizeLabel,
@@ -215,9 +129,7 @@ export function AttachmentPopoverView({
   onOpenOriginal,
 }: {
   readonly attachment: AttachmentProps;
-  readonly preview: AttachmentPreview;
-  readonly previewAvailable: boolean;
-  readonly previewLoading: boolean;
+  readonly previewState: AttachmentPreviewState;
   readonly isOwnedFile: boolean;
   readonly stateLabel: string;
   readonly sizeLabel: string;
@@ -281,20 +193,26 @@ export function AttachmentPopoverView({
         ) : null}
       </div>
 
-      {previewAvailable ? (
+      {previewState.status !== "unavailable" ? (
         <div className="mt-3 overflow-hidden rounded-lg bg-transparent ring-[0.5px] ring-inset ring-token-border">
-          {previewLoading ? (
+          {previewState.status === "loading" ? (
             <div className="px-3 py-2 text-xs text-token-description-foreground">
               Loading preview...
             </div>
           ) : null}
 
-          {!previewLoading && preview?.type === "text" ? (
+          {previewState.status === "failed" ? (
+            <div className="px-3 py-2 text-xs text-token-description-foreground">
+              Preview unavailable.
+            </div>
+          ) : null}
+
+          {previewState.status === "ready" && previewState.preview.type === "text" ? (
             <div className="px-3 py-2">
               <pre className="scrollbar-token max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-token-text-primary">
-                {preview.content}
+                {previewState.preview.content}
               </pre>
-              {preview.truncated ? (
+              {previewState.preview.truncated ? (
                 <p className="mt-2 text-[11px] text-token-description-foreground">
                   Preview limited to 200 lines or 64 KiB.
                 </p>
@@ -302,10 +220,10 @@ export function AttachmentPopoverView({
             </div>
           ) : null}
 
-          {!previewLoading && preview?.type === "folder" ? (
+          {previewState.status === "ready" && previewState.preview.type === "folder" ? (
             <div className="px-3 py-2">
               <div className="max-h-64 space-y-1 overflow-auto font-mono text-[12px] leading-5 text-token-text-secondary">
-                {preview.manifest.entries.map((entry) => (
+                {previewState.preview.manifest.entries.map((entry) => (
                   <div key={`${entry.kind}:${entry.path}`} className="truncate">
                     {entry.kind === "folder" ? "📁" : "·"} {entry.path}
                     {entry.kind === "file" && typeof entry.bytes === "number"
@@ -314,10 +232,10 @@ export function AttachmentPopoverView({
                   </div>
                 ))}
               </div>
-              {preview.manifest.truncated ? (
+              {previewState.preview.manifest.truncated ? (
                 <p className="mt-2 text-[11px] text-token-description-foreground">
-                  Snapshot limited to {preview.manifest.maxEntries} entries and{" "}
-                  {preview.manifest.maxDepth} levels.
+                  Snapshot limited to {previewState.preview.manifest.maxEntries} entries and{" "}
+                  {previewState.preview.manifest.maxDepth} levels.
                 </p>
               ) : null}
             </div>
@@ -325,14 +243,14 @@ export function AttachmentPopoverView({
         </div>
       ) : null}
 
-      {!previewAvailable && attachment.mode === "link" ? (
+      {previewState.status === "unavailable" && attachment.mode === "link" ? (
         <p className="mt-3 px-1 text-xs text-token-description-foreground">
           This attachment keeps a link to the original location instead of copying its contents into
           Nodex.
         </p>
       ) : null}
 
-      {!previewAvailable && attachment.mode === "materialized" ? (
+      {previewState.status === "unavailable" && attachment.mode === "materialized" ? (
         <p className="mt-3 px-1 text-xs text-token-description-foreground">
           This saved attachment doesn&apos;t have an inline preview.
         </p>
@@ -375,6 +293,7 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
     readonly source: string;
     readonly logicalPath: string;
     readonly mimeType: string;
+    readonly byteLength: number;
   } | null>(null);
   useEffect(() => {
     if (!isOwnedFile || !pageFileRuntime) return;
@@ -387,6 +306,7 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
           source: inlineContent.props.source,
           logicalPath: file.logicalPath,
           mimeType: file.mimeType,
+          byteLength: file.byteLength,
         });
       })
       .catch(() => {
@@ -404,6 +324,7 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
       ...inlineContent.props,
       name: ownedMetadata.logicalPath.split("/").at(-1) || inlineContent.props.name,
       mimeType: ownedMetadata.mimeType,
+      bytes: ownedMetadata.byteLength,
     };
   }, [inlineContent.props, ownedMetadata]);
   const label = useMemo(() => getAttachmentLabel(resolvedProps), [resolvedProps]);
@@ -426,9 +347,14 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
     if (!path) return;
     await fileReferenceRouter.open({ path }, { title: label });
   }, [fileReferenceRouter, isOwnedFile, label, pageFileRuntime, resolvePrimaryPath, resolvedProps]);
+  const attachmentPreview = useAttachmentPreview(resolvedProps, pageFileRuntime, open);
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) attachmentPreview.preload();
+    setOpen(nextOpen);
+  };
 
   return (
-    <NodexPopover open={open} onOpenChange={setOpen}>
+    <NodexPopover open={open} onOpenChange={handleOpenChange}>
       <NodexTooltip
         tooltipContent={
           <div className="space-y-0.5">
@@ -440,6 +366,7 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
         }
         side="top"
         delay={0}
+        disabled={open}
       >
         <span className="inline align-baseline">
           <NodexPopoverTrigger>
@@ -460,22 +387,27 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
               }
               trailing={resolvedProps.mode === "link" ? <Link2 className="size-full" /> : undefined}
               data-attachment-inline-chip="true"
+              onPointerEnter={attachmentPreview.preload}
+              onFocus={attachmentPreview.preload}
               onMouseDown={(event) => {
                 event.preventDefault();
               }}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                setOpen((current) => !current);
               }}
             />
           </NodexPopoverTrigger>
         </span>
       </NodexTooltip>
 
-      <NodexPopoverContent side="top" align="start" className="w-full" initialFocus={false}>
-        <AttachmentPopover props={resolvedProps} onPrimaryOpen={handlePrimaryOpen} />
-      </NodexPopoverContent>
+      <NfmEditorPopoverContent side="top" align="start" className="w-auto">
+        <AttachmentPopover
+          props={resolvedProps}
+          previewState={attachmentPreview.state}
+          onPrimaryOpen={handlePrimaryOpen}
+        />
+      </NfmEditorPopoverContent>
     </NodexPopover>
   );
 }

@@ -40,7 +40,7 @@ describe("codex tooltip", () => {
     expect(view.getByRole("tooltip").textContent).toContain("Standalone tooltip");
   });
 
-  test("returns the child directly when disabled", async () => {
+  test("keeps disabled tooltip content hidden", async () => {
     let view!: ReturnType<typeof render>;
 
     await act(async () => {
@@ -54,6 +54,7 @@ describe("codex tooltip", () => {
     });
 
     expect(view.getByText("Hover me").tagName).toBe("BUTTON");
+    expect(view.getByText("Hover me").getAttribute("aria-describedby")).toBeNull();
     expect(tooltipIsMounted()).toBe(false);
 
     await act(async () => {
@@ -61,6 +62,50 @@ describe("codex tooltip", () => {
     });
 
     expect(tooltipIsMounted()).toBe(false);
+  });
+
+  test("does not remount the trigger when disabled changes", async () => {
+    const renderTooltip = (disabled: boolean) => (
+      <NodexTooltipProvider>
+        <NodexTooltip tooltipContent="Shared tooltip body" defaultOpen disabled={disabled}>
+          <button type="button">Stable trigger</button>
+        </NodexTooltip>
+      </NodexTooltipProvider>
+    );
+    const view = render(renderTooltip(false));
+    const triggerBefore = view.getByRole("button", { name: "Stable trigger" });
+
+    expect(tooltipIsMounted()).toBe(true);
+
+    await act(async () => {
+      view.rerender(renderTooltip(true));
+    });
+
+    expect(tooltipIsMounted()).toBe(false);
+    const triggerAfter = view.getByRole("button", { name: "Stable trigger" });
+    expect(triggerAfter).toBe(triggerBefore);
+    expect(triggerAfter.getAttribute("aria-describedby")).toBeNull();
+  });
+
+  test("does not remount the trigger when tooltip content becomes unavailable", async () => {
+    const renderTooltip = (tooltipContent: string | null) => (
+      <NodexTooltipProvider>
+        <NodexTooltip tooltipContent={tooltipContent} defaultOpen>
+          <button type="button">Stable content trigger</button>
+        </NodexTooltip>
+      </NodexTooltipProvider>
+    );
+    const view = render(renderTooltip("Shared tooltip body"));
+    const triggerBefore = view.getByRole("button", { name: "Stable content trigger" });
+
+    await act(async () => {
+      view.rerender(renderTooltip(null));
+    });
+
+    expect(tooltipIsMounted()).toBe(false);
+    const triggerAfter = view.getByRole("button", { name: "Stable content trigger" });
+    expect(triggerAfter).toBe(triggerBefore);
+    expect(triggerAfter.getAttribute("aria-describedby")).toBeNull();
   });
 
   test("renders shortcut labels as keyboard input", async () => {

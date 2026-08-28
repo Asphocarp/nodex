@@ -131,7 +131,7 @@ export function NodexTooltip({
     return () => window.removeEventListener(NODEX_FLOATING_SURFACE_DISMISS_EVENT, handleDismiss);
   }, [isControlled, onOpenChange, open, uncontrolledOpen]);
 
-  if (disabled || tooltipContent == null) return <>{children}</>;
+  const tooltipDisabled = disabled || tooltipContent == null;
   if (!isValidElement(children)) {
     throw new Error("NodexTooltip requires one concrete interactive child");
   }
@@ -152,6 +152,7 @@ export function NodexTooltip({
   const tooltip = (
     <TooltipPrimitive.Root
       open={resolvedOpen}
+      disabled={tooltipDisabled}
       onOpenChange={(nextOpen) => {
         if (!isControlled) setUncontrolledOpen(nextOpen);
         onOpenChange?.(nextOpen);
@@ -163,7 +164,7 @@ export function NodexTooltip({
         render={children}
         delay={resolvedDelay}
         closeDelay={closeDelay}
-        aria-describedby={resolvedOpen ? tooltipId : undefined}
+        aria-describedby={!tooltipDisabled && resolvedOpen ? tooltipId : undefined}
       />
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Positioner
