@@ -417,6 +417,12 @@ const VERSION_SURFACES: readonly Surface[] = [
     "inject exact Module contracts",
   ],
   [
+    "src/main/dictation/mac-dictation-native-helper-client.ts:MAC_DICTATION_HELPER_PROTOCOL_VERSION",
+    "runtimeCompatibility",
+    "macOS dictation helper protocol",
+    "reject mismatched helper processes",
+  ],
+  [
     "src/main/sparkle-mac-app-updater.ts:SPARKLE_VERSION",
     "runtimeCompatibility",
     "Sparkle updater binding",

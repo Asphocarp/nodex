@@ -33,7 +33,7 @@ describe("DictationSettingsStore", () => {
     await expect(store.update({ microphoneInputDeviceId: "mic-1" })).resolves.toMatchObject({
       microphoneInputDeviceId: "mic-1",
     });
-    expect(await store.readKeepGlobalBarVisiblePreference()).toBe(false);
+    expect(await store.readKeepGlobalBarVisiblePreference()).toBeNull();
     expect(() => store.update({ unknown: true })).toThrow("Unknown dictation setting");
     expect((await store.read()).microphoneInputDeviceId).toBe("mic-1");
   });
@@ -74,6 +74,7 @@ describe("DictationSettingsStore", () => {
 
     expect(claims.filter(Boolean)).toHaveLength(1);
     expect((await store.read()).globalShortcutNudgeDismissed).toBe(true);
+    expect(await store.readKeepGlobalBarVisiblePreference()).toBeNull();
   });
 
   test("reads settings written before the nudge flag existed", async () => {

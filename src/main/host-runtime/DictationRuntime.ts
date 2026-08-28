@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
@@ -198,6 +199,8 @@ export const live = (options: {
           (controller) => Effect.sync(() => controller.dispose()),
         );
         const recoveryWake = yield* Queue.sliding<void>(1);
+        const recoveryCallbacks = yield* FiberSet.make();
+        const runRecoveryCallback = yield* FiberSet.runtime(recoveryCallbacks)();
         globalManager = new GlobalDictationManager({
           helper,
           windowController,
@@ -211,7 +214,7 @@ export const live = (options: {
             windows.all().find((window) => !window.isDestroyed() && window.isFocused()) ?? null,
           getAppWindowByWebContentsId: (webContentsId) => windows.get(webContentsId),
           onRecoveryNeeded: () => {
-            Queue.offerUnsafe(recoveryWake, undefined);
+            void runRecoveryCallback(Queue.offer(recoveryWake, undefined).pipe(Effect.asVoid));
           },
           platform: "darwin",
         });

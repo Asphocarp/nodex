@@ -4,7 +4,7 @@ import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { writeFile } from "node:fs/promises";
-import { BrowserWindow, ipcMain, Menu, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
 import { createKeyboardLayoutSnapshot } from "../../../shared/command-keybindings";
 import type { GlobalDictationContextMenuAction } from "../../../shared/global-dictation";
@@ -446,28 +446,35 @@ export const live = (
             }),
           ),
           Effect.andThen(
-            Effect.tryPromise({
-              try: () =>
-                new Promise<GlobalDictationContextMenuAction>((resolve) => {
-                  const window = BrowserWindow.fromWebContents(event.sender);
-                  if (!window || window.isDestroyed()) {
-                    resolve(null);
-                    return;
-                  }
-                  let selected: GlobalDictationContextMenuAction = null;
-                  const menu = Menu.buildFromTemplate([
-                    {
-                      id: "close-window",
-                      label: "Close window",
-                      click: () => {
-                        selected = "close-window";
-                      },
+            Effect.callback<GlobalDictationContextMenuAction, DictationIpcError>((resume) => {
+              const window = windows.get(event.sender.id);
+              if (!window || window.isDestroyed()) {
+                resume(Effect.succeed(null));
+                return;
+              }
+              let selected: GlobalDictationContextMenuAction = null;
+              try {
+                const menu = desktop.menu.buildFromTemplate([
+                  {
+                    id: "close-window",
+                    label: "Close window",
+                    click: () => {
+                      selected = "close-window";
                     },
-                  ]);
-                  menu.popup({ window, callback: () => resolve(selected) });
-                }),
-              catch: (cause) =>
-                new DictationIpcError({ operation: "show-global-dictation-context-menu", cause }),
+                  },
+                ]);
+                menu.popup({ window, callback: () => resume(Effect.succeed(selected)) });
+                return Effect.sync(() => menu.closePopup(window));
+              } catch (cause) {
+                resume(
+                  Effect.fail(
+                    new DictationIpcError({
+                      operation: "show-global-dictation-context-menu",
+                      cause,
+                    }),
+                  ),
+                );
+              }
             }),
           ),
         ),
