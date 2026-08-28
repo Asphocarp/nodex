@@ -507,6 +507,7 @@ export const NodexSettingsDropdownTrigger = forwardRef<
 
 export interface NodexDropdownItemProps extends Omit<ComponentPropsWithoutRef<"div">, "onSelect"> {
   disabled?: boolean;
+  focusableWhenDisabled?: boolean;
   onSelect?: NodexMenuSelectHandler;
   closeOnClick?: boolean;
   leftSlot?: ReactNode;
@@ -539,6 +540,8 @@ export const NodexDropdownItem = forwardRef<HTMLDivElement, NodexDropdownItemPro
       alignSlotsToStart = false,
       className,
       disabled = false,
+      focusableWhenDisabled = false,
+      closeOnClick,
       onClick,
       onSelect,
       ...props
@@ -549,9 +552,16 @@ export const NodexDropdownItem = forwardRef<HTMLDivElement, NodexDropdownItemPro
       <MenuPrimitive.Item
         ref={ref}
         data-slot="dropdown-item"
-        disabled={disabled}
+        disabled={disabled && !focusableWhenDisabled}
+        aria-disabled={disabled || undefined}
+        data-disabled={disabled ? "" : undefined}
+        closeOnClick={disabled && focusableWhenDisabled ? false : closeOnClick}
         onClick={
-          disabled ? undefined : (event) => handleNodexMenuItemClick(event, onClick, onSelect)
+          disabled
+            ? focusableWhenDisabled
+              ? (event) => event.preventDefault()
+              : undefined
+            : (event) => handleNodexMenuItemClick(event, onClick, onSelect)
         }
         className={cn(
           "no-drag",

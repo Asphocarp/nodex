@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Nodex now upgrades supported Profiles through Store v137 with a verified backup, current-only Block Document schemas and projections, and bounded operational history.
+- Permission selection now keeps custom config details out of the Composer menu and confirms the capabilities granted before enabling Full access.
 
 ### Fixed
 

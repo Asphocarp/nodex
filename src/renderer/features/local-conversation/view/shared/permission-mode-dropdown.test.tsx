@@ -1,226 +1,198 @@
-import { describe, expect, test } from "vite-plus/test";
-import { fireEvent } from "@testing-library/react";
-import { act } from "react";
-import { render } from "@/test/dom";
+import { fireEvent, waitFor } from "@testing-library/react";
+import { act, useState, type ComponentProps } from "react";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import { NodexModalHost } from "@/lib/modal-registry";
+import { renderWithMaitai } from "@/test/dom";
 import { PermissionModeDropdown } from "./permission-mode-dropdown";
 
-async function openPermissionMenu(view: ReturnType<typeof render>): Promise<void> {
+type PermissionModeDropdownProps = ComponentProps<typeof PermissionModeDropdown>;
+
+function renderPermissionDropdown(overrides: Partial<PermissionModeDropdownProps> = {}) {
+  const props: PermissionModeDropdownProps = {
+    selectedMode: "auto",
+    availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
+    autoReviewAvailable: true,
+    onSelect: () => undefined,
+    ...overrides,
+  };
+
+  return renderWithMaitai(
+    <NodexTooltipProvider delay={0}>
+      <PermissionModeDropdown {...props} />
+      <NodexModalHost />
+    </NodexTooltipProvider>,
+  );
+}
+
+async function openPermissionMenu(view: ReturnType<typeof renderPermissionDropdown>) {
   await act(async () => {
-    const trigger = view.getByLabelText("Permission mode");
+    const trigger = view.getByRole("button", { name: "Change permissions" });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(trigger);
     await Promise.resolve();
   });
+
+  return view.getByRole("menu");
 }
 
 describe("permission mode dropdown", () => {
-  test("renders Approve for me as the visible automatic reviewer mode", async () => {
-    let view!: ReturnType<typeof render>;
+  test("uses the compact Nodex permission menu copy", async () => {
+    const view = renderPermissionDropdown({ selectedMode: "guardian-approvals" });
 
-    await act(async () => {
-      view = render(
-        <NodexTooltipProvider>
-          <PermissionModeDropdown
-            selectedMode="guardian-approvals"
-            customDescription={null}
-            availableModes={["auto", "guardian-approvals", "full-access", "custom"]}
-            autoReviewAvailable
-            onSelect={() => {}}
-          />
-        </NodexTooltipProvider>,
-      );
-    });
-
-    expect(view.getByLabelText("Permission mode").textContent?.includes("Approve for me")).toBe(
-      true,
-    );
+    expect(view.getByText("Approve for me")).toBeTruthy();
 
     await openPermissionMenu(view);
 
-    const bodyText = view.container.ownerDocument.body.textContent ?? "";
-    expect(bodyText.includes("How should Agent actions be approved?")).toBe(true);
-    expect(bodyText.includes("Ask for approval")).toBe(true);
-    expect(bodyText.includes("Always ask to edit external files and use the internet")).toBe(true);
-    expect(bodyText.includes("Approve for me")).toBe(true);
-    expect(bodyText.includes("Only ask for actions detected as potentially unsafe")).toBe(true);
-    expect(bodyText.includes("Guardian approvals")).toBe(false);
+    expect(view.getByText("How should Nodex actions be approved?")).toBeTruthy();
+    expect(view.getByText("Always ask to edit external files and use the internet")).toBeTruthy();
+    expect(view.getByText("Only ask for actions detected as potentially unsafe")).toBeTruthy();
+    expect(view.queryByText("Guardian approvals")).toBeNull();
   });
 
-  test("does not select Approve for me when it is unavailable", async () => {
-    let view!: ReturnType<typeof render>;
-    let selectedMode: string | null = null;
-
-    await act(async () => {
-      view = render(
-        <NodexTooltipProvider>
-          <PermissionModeDropdown
-            selectedMode="auto"
-            customDescription={null}
-            availableModes={["auto", "full-access"]}
-            autoReviewAvailable={false}
-            onSelect={(mode) => {
-              selectedMode = mode;
-            }}
-          />
-        </NodexTooltipProvider>,
-      );
+  test("keeps unavailable fixed modes visible and disabled without replacing their descriptions", async () => {
+    const view = renderPermissionDropdown({
+      availableModes: ["auto", "full-access"],
+      autoReviewAvailable: false,
     });
 
     await openPermissionMenu(view);
 
-    const autoReviewItem = view.getByText("Approve for me");
-    expect(autoReviewItem.closest("[data-disabled]") !== null).toBe(true);
+    const autoReviewItem = view.getByRole("menuitem", { name: /Approve for me/ });
+    expect(autoReviewItem.getAttribute("aria-disabled")).toBe("true");
+    expect(view.getByText("Only ask for actions detected as potentially unsafe")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.focus(autoReviewItem);
+      await Promise.resolve();
+    });
     expect(
-      (view.container.ownerDocument.body.textContent ?? "").includes(
-        "Requires default sandboxed permissions in this workspace",
-      ),
-    ).toBe(true);
+      await view.findByText("Requires default sandboxed permissions in this workspace"),
+    ).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(autoReviewItem);
       await Promise.resolve();
     });
 
-    expect(selectedMode).toBe(null);
+    expect(view.getByRole("menu")).toBeTruthy();
   });
 
-  test("keeps Custom visible but disabled unless it is available or currently selected", async () => {
-    let defaultView!: ReturnType<typeof render>;
-    let customView!: ReturnType<typeof render>;
-    let selectedMode: string | null = null;
-
-    await act(async () => {
-      defaultView = render(
-        <NodexTooltipProvider>
-          <PermissionModeDropdown
-            selectedMode="auto"
-            customDescription={null}
-            availableModes={["auto", "guardian-approvals", "full-access"]}
-            autoReviewAvailable
-            onSelect={(mode) => {
-              selectedMode = mode;
-            }}
-          />
-        </NodexTooltipProvider>,
-      );
+  test("only shows Custom when it is available or currently selected", async () => {
+    const unavailableView = renderPermissionDropdown({
+      availableModes: ["auto", "guardian-approvals", "full-access"],
     });
-    await openPermissionMenu(defaultView);
+    await openPermissionMenu(unavailableView);
 
-    const unavailableCustomItem = defaultView.getByText("Custom (config.toml)");
-    expect(unavailableCustomItem.closest("[data-disabled]") !== null).toBe(true);
+    expect(unavailableView.queryByText("Custom (config.toml)")).toBeNull();
+    unavailableView.unmount();
 
-    await act(async () => {
-      fireEvent.click(unavailableCustomItem);
-      await Promise.resolve();
+    const currentCustomView = renderPermissionDropdown({
+      selectedMode: "custom",
+      availableModes: ["auto", "full-access"],
+      autoReviewAvailable: false,
     });
+    await openPermissionMenu(currentCustomView);
 
-    expect(selectedMode).toBe(null);
-
-    defaultView.unmount();
-
-    await act(async () => {
-      customView = render(
-        <NodexTooltipProvider>
-          <PermissionModeDropdown
-            selectedMode="custom"
-            customDescription="Project config: sandbox_mode=read-only."
-            availableModes={["auto", "full-access"]}
-            autoReviewAvailable={false}
-            onSelect={() => {}}
-          />
-        </NodexTooltipProvider>,
-      );
-    });
-    await openPermissionMenu(customView);
-
-    expect(
-      (customView.container.ownerDocument.body.textContent ?? "").includes("Custom (config.toml)"),
-    ).toBe(true);
-    expect(
-      (customView.container.ownerDocument.body.textContent ?? "").includes(
-        "Project config: sandbox_mode=read-only.",
-      ),
-    ).toBe(true);
+    expect(currentCustomView.getByText("Custom (config.toml)")).toBeTruthy();
+    expect(currentCustomView.getByText("Uses permissions defined in config.toml")).toBeTruthy();
   });
 
-  test("selects Custom when it is available", async () => {
-    let view!: ReturnType<typeof render>;
-    let selectedMode: string | null = null;
-
-    await act(async () => {
-      view = render(
-        <NodexTooltipProvider>
-          <PermissionModeDropdown
-            selectedMode="auto"
-            customDescription="User config: sandbox_mode=workspace-write; approval_policy=on-request."
-            availableModes={["auto", "guardian-approvals", "full-access", "custom"]}
-            autoReviewAvailable
-            onSelect={(mode) => {
-              selectedMode = mode;
-            }}
-          />
-        </NodexTooltipProvider>,
-      );
-    });
+  test("selects Custom directly when it is available", async () => {
+    const onSelect = vi.fn();
+    const view = renderPermissionDropdown({ onSelect });
     await openPermissionMenu(view);
 
-    const customItem = view.getByText("Custom (config.toml)");
-    expect(customItem.closest("[data-disabled]") === null).toBe(true);
-
     await act(async () => {
-      fireEvent.click(customItem);
+      fireEvent.click(view.getByRole("menuitem", { name: /Custom \(config.toml\)/ }));
       await Promise.resolve();
     });
 
-    expect(selectedMode).toBe("custom");
+    expect(onSelect).toHaveBeenCalledWith("custom");
   });
 
-  test("selects Full access directly without confirmation", async () => {
-    let view!: ReturnType<typeof render>;
-    let selectedMode: string | null = null;
-    let confirmCalled = false;
-    const originalConfirm = globalThis.confirm;
+  test("confirms Full access after the menu closes", async () => {
+    const onSelect = vi.fn();
+    const view = renderPermissionDropdown({ onSelect });
+    await openPermissionMenu(view);
 
-    globalThis.confirm = (() => {
-      confirmCalled = true;
-      return false;
-    }) as typeof globalThis.confirm;
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: /Full access/ }));
+      await Promise.resolve();
+    });
 
-    try {
-      await act(async () => {
-        view = render(
-          <NodexTooltipProvider>
-            <PermissionModeDropdown
-              selectedMode="auto"
-              customDescription={null}
-              availableModes={["auto", "guardian-approvals", "full-access", "custom"]}
-              autoReviewAvailable
-              onSelect={(mode) => {
-                selectedMode = mode;
-              }}
-            />
-          </NodexTooltipProvider>,
-        );
-      });
-      await openPermissionMenu(view);
+    await view.findByRole("dialog", { name: "Turn on Full Access?" });
+    expect(view.queryByRole("menu")).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(
+      view.getByText("Read, create, modify, upload, or delete files anywhere on this computer"),
+    ).toBeTruthy();
 
-      const fullAccessItem = view.getByText("Full access");
-      expect(
-        (view.container.ownerDocument.body.textContent ?? "").includes(
-          "Unrestricted access to the internet and any file on your computer",
-        ),
-      ).toBe(true);
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(onSelect).not.toHaveBeenCalled();
 
-      await act(async () => {
-        fireEvent.click(fullAccessItem);
-        await Promise.resolve();
-      });
+    await openPermissionMenu(view);
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: /Full access/ }));
+      await Promise.resolve();
+    });
+    await view.findByRole("dialog", { name: "Turn on Full Access?" });
 
-      expect(confirmCalled).toBe(false);
-      expect(selectedMode).toBe("full-access");
-    } finally {
-      globalThis.confirm = originalConfirm;
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Confirm" }));
+      await Promise.resolve();
+    });
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith("full-access");
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+  });
+
+  test("owns the Full access dialog outside the composer trigger subtree", async () => {
+    const parentPointerDown = vi.fn();
+    let hideTrigger: () => void = () => undefined;
+
+    function Harness() {
+      const [showTrigger, setShowTrigger] = useState(true);
+      hideTrigger = () => setShowTrigger(false);
+
+      return (
+        <NodexTooltipProvider>
+          {showTrigger ? (
+            <div onPointerDown={parentPointerDown}>
+              <PermissionModeDropdown
+                selectedMode="auto"
+                availableModes={["auto", "full-access"]}
+                onSelect={() => undefined}
+              />
+            </div>
+          ) : null}
+          <NodexModalHost />
+        </NodexTooltipProvider>
+      );
     }
+
+    const view = renderWithMaitai(<Harness />);
+    await openPermissionMenu(view);
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: /Full access/ }));
+      await Promise.resolve();
+    });
+
+    const dialog = await view.findByRole("dialog", { name: "Turn on Full Access?" });
+    parentPointerDown.mockClear();
+
+    await act(async () => {
+      fireEvent.pointerDown(dialog);
+      hideTrigger();
+      await Promise.resolve();
+    });
+
+    expect(parentPointerDown).not.toHaveBeenCalled();
+    expect(view.getByRole("dialog", { name: "Turn on Full Access?" })).toBeTruthy();
   });
 });

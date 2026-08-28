@@ -197,7 +197,6 @@ function ensureStorybookElectronBridge({
       source: "user",
       filePath: "/Users/asc/.codex/config.toml",
     },
-    customDescription: null,
   };
   let commandKeybindingOverrides: CommandKeybindingOverrides = {
     ...initialCommandKeybindingOverrides,

@@ -86,9 +86,6 @@ export class CodexPermissions extends Context.Service<
       keyPath: string,
       value: unknown,
     ) => Effect.Effect<CodexPermissionState, CodexPermissionsError>;
-    readonly customDescription: (
-      projectId: string | null,
-    ) => Effect.Effect<string, CodexPermissionsError>;
   }
 >()("nodex/main/codex-application/CodexPermissions") {}
 
@@ -114,8 +111,6 @@ const fallbackState = (
       sandbox: previous?.sandbox ?? null,
       autoReviewAvailable: previous?.autoReviewAvailable ?? false,
       configTarget,
-      customDescription:
-        previous?.customDescription ?? "The agent will use its built-in permission defaults.",
     };
   }
 
@@ -152,8 +147,6 @@ const fallbackState = (
     sandbox,
     autoReviewAvailable,
     configTarget,
-    customDescription:
-      previous?.customDescription ?? "The agent will use its built-in permission defaults.",
   };
 };
 
@@ -468,13 +461,6 @@ export const live = (options: {
           ),
         setMode,
         setConfigValue,
-        customDescription: (projectId) =>
-          snapshot(projectId).pipe(
-            Effect.map(
-              (state) =>
-                state.customDescription ?? "The agent will use its built-in permission defaults.",
-            ),
-          ),
       });
     }),
   );

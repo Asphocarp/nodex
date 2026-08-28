@@ -158,7 +158,6 @@ export function GeneralSettingsPage({
         >
           <PermissionModeDropdown
             selectedMode={permissionState?.mode ?? "custom"}
-            customDescription={permissionState?.customDescription ?? null}
             availableModes={permissionState?.availableModes}
             autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
             triggerStyle="settings"

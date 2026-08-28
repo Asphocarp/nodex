@@ -7,7 +7,6 @@ const meta = {
   component: PermissionModeDropdown,
   args: {
     selectedMode: "full-access",
-    customDescription: null,
     availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
     autoReviewAvailable: true,
     onSelect: () => undefined,
@@ -37,9 +36,32 @@ export const SettingsTrigger: Story = {
 
 export const FullAccessMenuOpen: Story = {
   play: async ({ canvasElement }) => {
-    const trigger = getByRole(canvasElement, "button", { name: "Permission mode" });
+    const trigger = getByRole(canvasElement, "button", { name: "Change permissions" });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(trigger);
     await waitFor(() => getByRole(document.body, "menuitem", { name: /Full access/ }));
+  },
+};
+
+export const CustomMenuOpen: Story = {
+  args: {
+    selectedMode: "custom",
+  },
+  play: FullAccessMenuOpen.play,
+};
+
+export const FullAccessConfirmation: Story = {
+  args: {
+    selectedMode: "auto",
+  },
+  play: async ({ canvasElement }) => {
+    const trigger = getByRole(canvasElement, "button", { name: "Change permissions" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    const fullAccess = await waitFor(() =>
+      getByRole(document.body, "menuitem", { name: /Full access/ }),
+    );
+    fireEvent.click(fullAccess);
+    await waitFor(() => getByRole(document.body, "dialog", { name: "Turn on Full Access?" }));
   },
 };

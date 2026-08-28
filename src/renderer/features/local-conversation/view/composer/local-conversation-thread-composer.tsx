@@ -4459,7 +4459,6 @@ function HydratedThreadComposer({
         selectedMode={model.permissionMode}
         availableModes={permissionState?.availableModes}
         autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
-        customDescription={permissionState?.customDescription ?? null}
         triggerVariant="icon"
         onSelect={actions.onPermissionModeChange}
       />
@@ -4474,7 +4473,6 @@ function HydratedThreadComposer({
         selectedMode={model.permissionMode}
         availableModes={permissionState?.availableModes}
         autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
-        customDescription={permissionState?.customDescription ?? null}
         onSelect={actions.onPermissionModeChange}
       />
       {model.selectedCollaborationMode === "plan" || goalModeActive ? (

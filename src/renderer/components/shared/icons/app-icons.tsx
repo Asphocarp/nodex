@@ -2992,6 +2992,97 @@ export function PermissionFullAccessIcon({ className }: IconProps) {
   );
 }
 
+export function PermissionFullAccessWarningIcon({ className }: IconProps) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 20 20"
+      className={cn("shrink-0", className ?? "icon-sm")}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M8.505 3.645c.657-1.147 2.333-1.147 2.99 0l6.025 10.526c.64 1.119-.176 2.504-1.495 2.504H3.975c-1.319 0-2.135-1.385-1.495-2.504L8.505 3.645Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M10 7.083v3.334" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M10 13.333h.008" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function PermissionFilesCapabilityIcon({ className }: IconProps) {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      className={cn("size-6 shrink-0", className)}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M22 9v4H2V7c0-2.35 1.65-4 4-4h2.637c2.988 0 2.75 2 4.613 2H18c2.35 0 4 1.65 4 4Z"
+        fill="#2E9EFF"
+      />
+      <path
+        d="M18 21c2.35 0 4-1.65 4-4v-5a3 3 0 0 0-3-3H5a3 3 0 0 0-3 3v5c0 2.35 1.65 4 4 4h12Z"
+        fill="#68C4FF"
+      />
+    </svg>
+  );
+}
+
+export function PermissionTerminalCapabilityIcon({ className }: IconProps) {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      className={cn("size-6 shrink-0", className)}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M7 21c-.775 0-1.467-.167-2.075-.5A3.66 3.66 0 0 1 3.5 19.075C3.167 18.467 3 17.775 3 17V7c0-.775.167-1.467.5-2.075a3.575 3.575 0 0 1 1.425-1.412C5.533 3.17 6.225 3 7 3h10c.775 0 1.467.17 2.075.513.608.333 1.08.804 1.413 1.412.341.608.512 1.3.512 2.075v10c0 .775-.17 1.467-.512 2.075a3.576 3.576 0 0 1-1.413 1.425c-.608.333-1.3.5-2.075.5H7Z"
+        fill="#4D4D4D"
+      />
+      <path
+        d="M11 12a.995.995 0 0 1-.313.725l-1.962 1.963A.968.968 0 0 1 8 15a.955.955 0 0 1-.712-.313.955.955 0 0 1-.313-.712c0-.275.104-.512.313-.713L8.538 12l-1.25-1.25a.955.955 0 0 1-.313-.713c0-.283.104-.529.313-.737.2-.2.437-.3.712-.3.283 0 .525.1.725.3l1.963 1.975c.1.1.175.217.224.35A.88.88 0 0 1 11 12Zm5.7 2.713A.953.953 0 0 1 16 15h-3a.995.995 0 0 1-.713-.287A.995.995 0 0 1 12 14c0-.275.096-.508.287-.7.2-.2.438-.3.713-.3h3c.275 0 .508.1.7.3.2.192.3.425.3.7 0 .275-.1.512-.3.713Z"
+        fill="white"
+      />
+    </svg>
+  );
+}
+
+export function PermissionInternetCapabilityIcon({ className }: IconProps) {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      className={cn("size-6 shrink-0", className)}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" fill="#CDF3FF" />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M12 2c5.522 0 10 4.478 10 10s-4.478 10-10 10S2 17.522 2 12 6.478 2 12 2ZM9.172 13c.146 4.477 1.284 7 2.828 7 1.544 0 2.682-2.523 2.828-7H9.172Zm-5.108 0a7.994 7.994 0 0 0 4.313 6.134C7.686 17.622 7.261 15.549 7.174 13h-3.11Zm12.762 0c-.087 2.55-.512 4.622-1.204 6.134A7.994 7.994 0 0 0 19.936 13h-3.11Zm-8.45-8.135A7.995 7.995 0 0 0 4.065 11h3.11c.087-2.55.511-4.623 1.203-6.135ZM12.001 4c-1.544 0-2.682 2.523-2.828 7h5.656C14.682 6.523 13.544 4 12 4Zm3.622.865C16.314 6.377 16.74 8.45 16.826 11h3.11a7.995 7.995 0 0 0-4.314-6.135Z"
+        fill="#41CEF9"
+      />
+    </svg>
+  );
+}
+
 export function BranchStatusIcon({ className }: IconProps) {
   return (
     <svg

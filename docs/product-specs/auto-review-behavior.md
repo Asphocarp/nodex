@@ -131,7 +131,7 @@ Preferred fallback order is:
 - Switching away from `custom` writes a fixed preset back through the config APIs.
 - Staying on `custom` does not invent a synthetic preset behind the scenes.
 
-The tooltip/description for `custom` should reflect the resolved config source, file path, `sandbox_mode`, `approval_policy`, and `approvals_reviewer` when available.
+The composer description for `custom` is the stable summary `Uses permissions defined in config.toml`. Raw config source, path, `sandbox_mode`, `approval_policy`, and `approvals_reviewer` details belong to the dedicated Settings config surface and never size or crowd the composer menu.
 
 ## Config Keys
 
@@ -193,14 +193,16 @@ Dropdown copy:
 - Learn-more affordance: `Learn more`
 - `Ask for approval`: `Always ask to edit external files and use the internet`
 - `Approve for me`: `Only ask for actions detected as potentially unsafe`
-- `Approve for me` disabled: `Requires default sandboxed permissions in this workspace`
-- `Full access`: `Allow unrestricted file and network access, and read or modify the entire Nodex Library without approval prompts.`
-- `Full access` disabled: `Disabled by requirements.toml`
+- `Approve for me` disabled tooltip: `Requires default sandboxed permissions in this workspace`
+- `Full access`: `Unrestricted access to the internet and any file on your computer`
+- `Full access` disabled tooltip: `Disabled by requirements.toml`
 - `Custom (config.toml)`: `Uses permissions defined in config.toml`
 
-The selector trigger accents the selected mode consistently on every surface: `Full access` uses the warning foreground token and `Approve for me` uses the link foreground token. Other modes inherit the standard ghost-button color.
+Fixed modes remain visible when requirements disable them, retain their ordinary explanatory subtext, and expose the disabled reason from a focusable tooltip. `Custom (config.toml)` appears only when Custom is available or is the current resolved mode.
 
-Selecting `Full access` writes the preset immediately when it is available. The permission selector does not show an extra confirmation dialog.
+The composer trigger uses the accessible label and tooltip `Change permissions`, omits a redundant dropdown chevron, and accents only `Full access` with the warning foreground token. Other modes inherit the standard ghost-button color.
+
+Selecting `Full access` closes the menu and opens a renderer-window-owned confirmation before writing the preset. The confirmation explains unrestricted file, terminal, internet, and connected-app access; Cancel leaves the mode unchanged, while Confirm applies `full-access`. The dialog remains mounted if the originating composer or Settings row unmounts.
 
 ### Settings -> Agent
 

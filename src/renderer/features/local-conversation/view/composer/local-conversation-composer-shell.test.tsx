@@ -581,7 +581,7 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     expect(view.getByLabelText("Add files and more") !== null).toBe(true);
-    expect(view.getByLabelText("Permission mode") !== null).toBe(true);
+    expect(view.getByLabelText("Change permissions") !== null).toBe(true);
     expect(view.getByLabelText("Select model") !== null).toBe(true);
     expect(
       view.queryByText("Foreground thread wants to run lint before Storybook build.") === null,

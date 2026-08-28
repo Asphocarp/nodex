@@ -107,7 +107,6 @@ function permissionState(overrides: Partial<CodexPermissionState> = {}): CodexPe
     },
     autoReviewAvailable: false,
     configTarget: { source: "none", filePath: null },
-    customDescription: null,
     ...overrides,
   };
 }

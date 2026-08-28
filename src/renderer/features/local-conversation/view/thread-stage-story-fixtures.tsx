@@ -3395,8 +3395,6 @@ export function buildThreadStageStorySurfaceModels(
         source: "user",
         filePath: `${STORY_WORKSPACE_PATH}/.codex/config.toml`,
       },
-      customDescription:
-        controls.permissionMode === "custom" ? "Custom Storybook permissions" : null,
     },
     isQueueingEnabled: controls.isQueueingEnabled,
     composerEnterBehavior: "enter",
@@ -3533,8 +3531,6 @@ function createStorybookElectronBridge(input: {
             pageId === input.card.id ? input.card : null,
           );
         }
-        case "codex:permission:custom-description:get":
-          return input.permissionDescription;
         case "codex:permission:state:get":
         case "codex:permission:mode:set":
         case "codex:permission:config-value:set":
@@ -3563,7 +3559,6 @@ function createStorybookElectronBridge(input: {
               source: "user",
               filePath: "/tmp/project/.codex/config.toml",
             },
-            customDescription: input.permissionDescription,
           };
         default:
           return null;

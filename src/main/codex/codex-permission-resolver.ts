@@ -22,8 +22,6 @@ const LEGACY_AUTO_REVIEW_APPROVALS_REVIEWER: CodexApprovalsReviewer = "guardian_
 const READ_ONLY_PERMISSION_PROFILE_ID = ":read-only";
 const WORKSPACE_PERMISSION_PROFILE_ID = ":workspace";
 export const FULL_ACCESS_PERMISSION_PROFILE_ID = ":danger-full-access";
-const DEFAULT_CUSTOM_DESCRIPTION =
-  "No project or user Codex config was found. The agent runtime will fall back to its built-in permission defaults.";
 
 interface ResolvedPreset {
   preset: CodexPermissionPreset;
@@ -305,36 +303,6 @@ function resolveFallbackPreset(
   return AUTO_PRESET;
 }
 
-function describeSource(target: PermissionConfigTarget): string {
-  if (target.source === "project") return "Project config";
-  if (target.source === "user") return "User config";
-  return "Codex config";
-}
-
-function displayPath(target: PermissionConfigTarget): string {
-  if (!target.filePath) return "config.toml";
-  return target.filePath;
-}
-
-function buildCustomDescription(input: {
-  target: PermissionConfigTarget;
-  sandboxMode: CodexSandboxMode | null;
-  approvalPolicy: CodexApprovalPolicy | null;
-  approvalsReviewer: CodexApprovalsReviewer;
-}): string {
-  if (input.target.source === "none") {
-    return DEFAULT_CUSTOM_DESCRIPTION;
-  }
-
-  const sourceLabel = describeSource(input.target);
-  const pathLabel = displayPath(input.target);
-  const sandboxLabel = input.sandboxMode ?? "unset";
-  const approvalLabel = input.approvalPolicy ?? "unset";
-  const reviewerLabel = input.approvalsReviewer ?? DEFAULT_APPROVALS_REVIEWER;
-
-  return `${sourceLabel} (${pathLabel}): sandbox_mode=${sandboxLabel}; approval_policy=${approvalLabel}; ${APPROVALS_REVIEWER_KEY}=${reviewerLabel}.`;
-}
-
 function resolveConfigTarget(input: {
   origins: ConfigReadResponse["origins"];
   defaultUserConfigPath: string;
@@ -446,12 +414,6 @@ export function resolveCodexPermissionState(input: {
     ),
     autoReviewAvailable,
     configTarget,
-    customDescription: buildCustomDescription({
-      target: configTarget,
-      sandboxMode,
-      approvalPolicy,
-      approvalsReviewer,
-    }),
   };
 }
 
