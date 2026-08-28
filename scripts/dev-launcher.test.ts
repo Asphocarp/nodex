@@ -38,6 +38,8 @@ describe("dev launcher", () => {
         "/tmp/auth.json",
         "--agent-config-toml",
         "/tmp/config.toml",
+        "--remote-debugging-port",
+        "9229",
         "--enable",
         "runtime-metrics",
         "--enable",
@@ -51,6 +53,7 @@ describe("dev launcher", () => {
       build: true,
       authJson: "/tmp/auth.json",
       agentConfigToml: "/tmp/config.toml",
+      remoteDebuggingPort: "9229",
       enabledFeatures: ["runtime-metrics", "runtime-metrics"],
       deleteHome: true,
       help: false,
@@ -115,6 +118,24 @@ describe("dev launcher", () => {
     });
     expect(plan.environment.NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE).toBeUndefined();
     expect(plan.environment.NODEX_CORE_EXECUTABLE).toBeUndefined();
+  });
+
+  test("accepts the CDP alias and lets the command line override the environment", () => {
+    const plan = createDevLaunchPlan({
+      arguments: parseDevLauncherArguments(["--cdp", "9333"]),
+      environment: { NODEX_REMOTE_DEBUGGING_PORT: "9444" },
+      home: HOME,
+    });
+    expect(plan.application.args).toEqual([
+      "exec",
+      "electron-vite",
+      "dev",
+      "--logLevel",
+      "warn",
+      "--remoteDebuggingPort",
+      "9333",
+    ]);
+    expect(plan.environment.NODEX_REMOTE_DEBUGGING_PORT).toBe("9333");
   });
 
   test("selects a build-first built application plan", () => {
@@ -186,6 +207,12 @@ describe("dev launcher", () => {
         home: HOME,
       }),
     ).toThrow(/Available features: runtime-metrics/u);
+    expect(() => parseDevLauncherArguments(["--remote-debugging-port", "70000"])).toThrow(
+      "--remote-debugging-port",
+    );
+    expect(() => parseDevLauncherArguments(["--cdp", "9229", "--cdp", "9333"])).toThrow(
+      "may be specified only once",
+    );
     expect(() =>
       createDevLaunchPlan({
         arguments: parseDevLauncherArguments([]),

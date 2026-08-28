@@ -43,6 +43,7 @@ export interface DevLauncherArguments {
   readonly build: boolean;
   readonly authJson?: string;
   readonly agentConfigToml?: string;
+  readonly remoteDebuggingPort?: string;
   readonly enabledFeatures: readonly string[];
   readonly deleteHome: boolean;
   readonly help: boolean;
@@ -72,6 +73,8 @@ Options:
   --build                    Build optimized Rust binaries and run without HMR
   --auth-json <file>         Copy an auth.json into the environment
   --agent-config-toml <file> Copy a sanitized agent config.toml
+  --remote-debugging-port <port>, --cdp <port>
+                             Expose DevTools on port 0-65535 (default: 0)
   --enable <feature-slug>    Enable a development feature for this invocation
   --delete                   Delete the environment after a proven clean stop
   --help                     Show this help
@@ -85,6 +88,18 @@ const readOptionValue = (args: readonly string[], index: number, option: string)
   return value;
 };
 
+const parseRemoteDebuggingPort = (value: string, option: string): string => {
+  const normalized = value.trim();
+  if (!/^\d+$/u.test(normalized)) {
+    throw new Error(`${option} must be an integer from 0 to 65535`);
+  }
+  const port = Number(normalized);
+  if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
+    throw new Error(`${option} must be an integer from 0 to 65535`);
+  }
+  return String(port);
+};
+
 export const parseDevLauncherArguments = (args: readonly string[]): DevLauncherArguments => {
   let home: string | undefined;
   let seed: string | undefined;
@@ -93,6 +108,7 @@ export const parseDevLauncherArguments = (args: readonly string[]): DevLauncherA
   let backupWasSet = false;
   let authJson: string | undefined;
   let agentConfigToml: string | undefined;
+  let remoteDebuggingPort: string | undefined;
   let build = false;
   let deleteHome = false;
   let help = false;
@@ -154,6 +170,12 @@ export const parseDevLauncherArguments = (args: readonly string[]): DevLauncherA
       index += 1;
       continue;
     }
+    if (argument === "--remote-debugging-port" || argument === "--cdp") {
+      const value = parseRemoteDebuggingPort(readOptionValue(args, index, argument), argument);
+      remoteDebuggingPort = setOnce("--remote-debugging-port/--cdp", remoteDebuggingPort, value);
+      index += 1;
+      continue;
+    }
     if (argument === "--enable") {
       enabledFeatures.push(readOptionValue(args, index, argument));
       index += 1;
@@ -175,22 +197,11 @@ export const parseDevLauncherArguments = (args: readonly string[]): DevLauncherA
     build,
     ...(authJson === undefined ? {} : { authJson }),
     ...(agentConfigToml === undefined ? {} : { agentConfigToml }),
+    ...(remoteDebuggingPort === undefined ? {} : { remoteDebuggingPort }),
     enabledFeatures,
     deleteHome,
     help,
   };
-};
-
-const parseRemoteDebuggingPort = (environment: NodeJS.ProcessEnv): string => {
-  const value = environment.NODEX_REMOTE_DEBUGGING_PORT?.trim() || "0";
-  if (!/^\d+$/u.test(value)) {
-    throw new Error("NODEX_REMOTE_DEBUGGING_PORT must be an integer from 0 to 65535");
-  }
-  const port = Number(value);
-  if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
-    throw new Error("NODEX_REMOTE_DEBUGGING_PORT must be an integer from 0 to 65535");
-  }
-  return String(port);
 };
 
 const pnpmScript = (script: string): SupervisedCommandPlan => ({
@@ -204,7 +215,12 @@ export const createDevLaunchPlan = (input: {
   readonly home: DevelopmentEnvironmentHome;
 }): DevLaunchPlan => {
   const enabledFeatures = resolveDevelopmentFeatureOverrides(input.arguments.enabledFeatures);
-  const remoteDebuggingPort = parseRemoteDebuggingPort(input.environment);
+  const remoteDebuggingPort =
+    input.arguments.remoteDebuggingPort ??
+    parseRemoteDebuggingPort(
+      input.environment.NODEX_REMOTE_DEBUGGING_PORT?.trim() || "0",
+      "NODEX_REMOTE_DEBUGGING_PORT",
+    );
   const usesProfileSnapshot =
     input.arguments.fromProfile !== undefined || input.home.manifest.profileSnapshot !== undefined;
   const environment: NodeJS.ProcessEnv = {
