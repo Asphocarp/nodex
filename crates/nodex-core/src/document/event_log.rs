@@ -50,6 +50,8 @@ struct DocumentEventMetadata {
     reason: Option<String>,
     #[serde(default)]
     local_commit_id: Option<String>,
+    #[serde(default)]
+    page_file_body_usage_changed: bool,
 }
 
 pub(crate) fn reconstruct_document_event(
@@ -105,6 +107,7 @@ pub(crate) fn reconstruct_document_event(
                         generation: metadata.generation,
                         head_seq: metadata.head_seq,
                         update,
+                        page_file_body_usage_changed: metadata.page_file_body_usage_changed,
                     }
                 }
                 None => OwnedDocumentEvent::DocumentResyncRequired {
@@ -117,6 +120,7 @@ pub(crate) fn reconstruct_document_event(
                         .clone()
                         .filter(|hash| is_sha256(hash))
                         .ok_or_else(|| corrupt("Yjs event update hash is invalid"))?,
+                    page_file_body_usage_changed: metadata.page_file_body_usage_changed,
                 },
             }
         }
@@ -220,6 +224,7 @@ pub(crate) fn reconstruct_document_event(
         "document_restored" => OwnedDocumentEvent::DocumentInvalidated {
             document_id: metadata.document_id,
             reason: DocumentInvalidationReason::Restored,
+            page_file_body_usage_changed: metadata.page_file_body_usage_changed,
         },
         "document_invalidated" => {
             let reason = match metadata.reason.as_deref() {
@@ -231,6 +236,7 @@ pub(crate) fn reconstruct_document_event(
             OwnedDocumentEvent::DocumentInvalidated {
                 document_id: metadata.document_id,
                 reason,
+                page_file_body_usage_changed: metadata.page_file_body_usage_changed,
             }
         }
         _ => return Err(corrupt("Owned Document event kind is unsupported")),

@@ -1,9 +1,17 @@
 import { type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import { ActivitySpinnerIcon, FileIcon, PlusIcon } from "@/components/shared/icons";
-import { FileResourceIcon } from "@/components/shared/file-resource-icon";
+import {
+  ActivitySpinnerIcon,
+  ChevronRightIcon,
+  FileIcon,
+  PlanDownloadIcon,
+  PlusIcon,
+  RepeatIcon,
+  ShortcutPencilIcon,
+  ShortcutTrashIcon,
+} from "@/components/shared/icons";
+import { ColorfulFileResourceIcon } from "@/components/shared/file-resource-icon";
 import { DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME } from "@/components/database/property-value-chip";
-import { DownloadIcon } from "@/components/shared/icons/generic-icons";
 import {
   NodexDialog,
   NodexDialogAction,
@@ -18,6 +26,7 @@ import {
   PropertyEmptyValue,
 } from "@/components/database/property-empty-value";
 import { toast } from "@/components/ui/toast";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   applyLibraryModule,
   pickAndPreparePageFiles,
@@ -43,6 +52,7 @@ import {
 } from "@/lib/page-file-resources";
 import type { PageStageController } from "./use-page-stage-controller";
 import { subscribePageFileChanges } from "@/lib/page-library-changes";
+import type { PageFileChange } from "@/lib/page-library-changes";
 
 interface PageFilesRowProps {
   readonly controller: PageStageController;
@@ -58,6 +68,7 @@ interface FilePreview {
 const EMPTY_MANIFEST = (pageId: string): LibraryPageFileManifest => ({
   pageId,
   revision: 0,
+  bodyUsageRevision: 0,
   files: [],
   nextCursor: null,
   hasMore: false,
@@ -127,7 +138,11 @@ function FilePreviewSurface({
   }
   return (
     <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-xl bg-token-foreground/4 text-token-description-foreground">
-      <FileResourceIcon path={file.logicalPath} mimeType={file.mimeType} className="icon-lg" />
+      <ColorfulFileResourceIcon
+        path={file.logicalPath}
+        mimeType={file.mimeType}
+        className="icon-lg"
+      />
       <span className="text-sm">Preview isn’t available for this format</span>
     </div>
   );
@@ -147,6 +162,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [previewText, setPreviewText] = useState("");
   const [query, setQuery] = useState("");
+  const [inPageExpanded, setInPageExpanded] = useState(false);
   const [fileDragActive, setFileDragActive] = useState(false);
 
   const pageId = page?.id ?? "";
@@ -184,13 +200,19 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
     return promise;
   }, [authorityKey, pageId]);
 
-  const refreshToRevision = useCallback(
-    async (revision: number): Promise<void> => {
+  const refreshToChange = useCallback(
+    async (change: PageFileChange): Promise<void> => {
       const first = await load();
-      if (first.revision >= revision) return;
+      const firstReached =
+        (change.manifestRevision === null || first.revision >= change.manifestRevision) &&
+        (change.bodyUsageRevision === null || first.bodyUsageRevision >= change.bodyUsageRevision);
+      if (firstReached) return;
       const second = await load();
-      if (second.revision < revision) {
-        throw new Error("Page Files did not reach the announced manifest revision");
+      if (
+        (change.manifestRevision !== null && second.revision < change.manifestRevision) ||
+        (change.bodyUsageRevision !== null && second.bodyUsageRevision < change.bodyUsageRevision)
+      ) {
+        throw new Error("Page Files did not reach the announced inventory revision");
       }
     },
     [load],
@@ -216,11 +238,18 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
 
   useEffect(() => {
     if (!pageId) return;
-    return subscribePageFileChanges(pageId, (revision) => {
-      if (revision <= manifestRef.current.revision) return;
-      void refreshToRevision(revision).catch(() => toast.danger("Couldn’t refresh Page Files"));
+    return subscribePageFileChanges(pageId, (change) => {
+      if (
+        (change.manifestRevision === null ||
+          change.manifestRevision <= manifestRef.current.revision) &&
+        (change.bodyUsageRevision === null ||
+          change.bodyUsageRevision <= manifestRef.current.bodyUsageRevision)
+      ) {
+        return;
+      }
+      void refreshToChange(change).catch(() => toast.danger("Couldn’t refresh Page Files"));
     });
-  }, [pageId, refreshToRevision]);
+  }, [pageId, refreshToChange]);
 
   useEffect(
     () => () => {
@@ -535,13 +564,171 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
   };
 
   const liveFiles = manifest.files.filter((file) => file.state === "live");
-  const visibleFiles = liveFiles.filter((file) =>
-    file.logicalPath.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
-  );
-  const deletedFiles = manifest.files.filter((file) => file.state === "deleted");
+  const unplacedFiles = liveFiles.filter((file) => file.bodyUsage.kind === "not_in_body");
+  const inPageFiles = liveFiles.filter((file) => file.bodyUsage.kind === "placed");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matchesQuery = (file: LibraryPageFileSummary): boolean =>
+    file.logicalPath.toLocaleLowerCase().includes(normalizedQuery);
+  const visibleUnplacedFiles = unplacedFiles.filter(matchesQuery);
+  const visibleInPageFiles = inPageFiles.filter(matchesQuery);
+  const deletedFiles = manifest.files
+    .filter((file) => file.state === "deleted")
+    .filter(matchesQuery);
   const previewFile = liveFiles.find((file) => file.fileId === previewFileId) ?? null;
-  const rowFiles = liveFiles.slice(0, PAGE_FILE_ROW_CHIP_LIMIT);
-  const hiddenFileCount = liveFiles.length - rowFiles.length;
+  const rowFiles = unplacedFiles.slice(0, PAGE_FILE_ROW_CHIP_LIMIT);
+  const hiddenUnplacedFileCount = unplacedFiles.length - rowFiles.length;
+  const hiddenFileCount = hiddenUnplacedFileCount + inPageFiles.length;
+  const summaryShowsInPage = hiddenUnplacedFileCount === 0 && inPageFiles.length > 0;
+  const summaryLabel = summaryShowsInPage ? `${inPageFiles.length} in page` : `+${hiddenFileCount}`;
+  const hiddenSummaryParts = [
+    hiddenUnplacedFileCount > 0
+      ? `${hiddenUnplacedFileCount} more ${hiddenUnplacedFileCount === 1 ? "file" : "files"}`
+      : null,
+    inPageFiles.length > 0 ? `${inPageFiles.length} shown in page` : null,
+  ].filter((part): part is string => part !== null);
+  const hiddenSummaryTooltip = hiddenSummaryParts.join(" · ");
+  const searchActive = normalizedQuery.length > 0;
+  const inPageSectionExpanded = searchActive || inPageExpanded;
+  const hasSearchResults =
+    visibleUnplacedFiles.length + visibleInPageFiles.length + deletedFiles.length > 0;
+
+  const openFiles = (options: { readonly expandInPage?: boolean } = {}): void => {
+    setInPageExpanded(options.expandInPage ?? false);
+    setOpen(true);
+  };
+
+  const renderFileRow = (file: LibraryPageFileSummary) => (
+    <div key={file.fileId} className="group flex min-h-12 items-center gap-3 py-2">
+      <button
+        type="button"
+        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-transparent text-token-text-secondary hover:bg-token-foreground/6"
+        onClick={() => void openPreview(file)}
+        aria-label={`Preview ${file.logicalPath}`}
+      >
+        <ColorfulFileResourceIcon
+          path={file.logicalPath}
+          mimeType={file.mimeType}
+          className="icon-sm"
+        />
+      </button>
+      <div className="min-w-0 flex-1">
+        {editingFileId === file.fileId ? (
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void renameFile(file);
+            }}
+          >
+            <input
+              autoFocus
+              value={editingPath}
+              disabled={mutating}
+              onChange={(event) => setEditingPath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setEditingFileId(null);
+              }}
+              className="h-7 min-w-0 flex-1 rounded-md bg-token-foreground/5 px-2 text-sm outline-none ring-1 ring-token-border focus:ring-token-focus"
+              aria-label="File path"
+            />
+            <button className="text-xs text-token-text-primary" type="submit">
+              Save
+            </button>
+            <button
+              className="text-xs text-token-description-foreground"
+              type="button"
+              onClick={() => setEditingFileId(null)}
+            >
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            className="block max-w-full truncate text-left text-sm text-token-text-primary hover:underline"
+            onClick={() => void openPreview(file)}
+          >
+            {file.logicalPath}
+          </button>
+        )}
+        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-token-description-foreground">
+          <span>{formatBytes(file.byteLength)}</span>
+          <span aria-hidden="true">·</span>
+          <span>v{file.version}</span>
+          {file.bodyUsage.kind === "placed" ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>
+                {file.bodyUsage.placementCount === 1
+                  ? "In page"
+                  : `${file.bodyUsage.placementCount} placements`}
+              </span>
+            </>
+          ) : null}
+          <span aria-hidden="true">·</span>
+          <span className="truncate">{file.mimeType}</span>
+        </div>
+      </div>
+      {editingFileId !== file.fileId ? (
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+            mutating && "pointer-events-none opacity-40",
+          )}
+        >
+          <NodexTooltip tooltipContent="Rename">
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-foreground/6 hover:text-token-text-primary"
+              onClick={() => {
+                setEditingFileId(file.fileId);
+                setEditingPath(file.logicalPath);
+              }}
+              aria-label={`Rename ${file.logicalPath}`}
+            >
+              <ShortcutPencilIcon className="icon-2xs" />
+            </button>
+          </NodexTooltip>
+          <NodexTooltip tooltipContent="Replace">
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-foreground/6 hover:text-token-text-primary"
+              onClick={() => void replaceFile(file)}
+              aria-label={`Replace ${file.logicalPath}`}
+            >
+              <RepeatIcon className="icon-2xs" />
+            </button>
+          </NodexTooltip>
+          <NodexTooltip tooltipContent="Download">
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-foreground/6 hover:text-token-text-primary"
+              onClick={() =>
+                void savePageFile(contentAccessContext, {
+                  pageId,
+                  fileId: file.fileId,
+                  logicalPath: file.logicalPath,
+                }).catch(() => toast.danger("Couldn’t save file"))
+              }
+              aria-label={`Download ${file.logicalPath}`}
+            >
+              <PlanDownloadIcon className="icon-2xs" />
+            </button>
+          </NodexTooltip>
+          <NodexTooltip tooltipContent="Delete">
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-charts-red/10 hover:text-token-charts-red"
+              onClick={() => void deleteFile(file)}
+              aria-label={`Delete ${file.logicalPath}`}
+            >
+              <ShortcutTrashIcon className="icon-2xs" />
+            </button>
+          </NodexTooltip>
+        </div>
+      ) : null}
+    </div>
+  );
 
   return (
     <>
@@ -569,7 +756,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                 "flex min-h-6 min-w-0 items-center text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-token-focus",
                 DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
               )}
-              onClick={() => setOpen(true)}
+              onClick={() => openFiles()}
               aria-label="Add Page Files"
               aria-busy={loading}
             >
@@ -590,7 +777,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                   )}
                   onClick={() => void openPreview(file)}
                 >
-                  <FileResourceIcon
+                  <ColorfulFileResourceIcon
                     path={file.logicalPath}
                     mimeType={file.mimeType}
                     className="size-3.5 shrink-0 text-(--foreground-secondary)"
@@ -599,23 +786,29 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                 </button>
               ))}
               {hiddenFileCount > 0 ? (
-                <button
-                  type="button"
-                  aria-label={`Open ${hiddenFileCount} more Page Files`}
-                  className={cn(
-                    DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME,
-                    "text-token-description-foreground outline-none hover:bg-token-foreground/5 hover:text-token-text-secondary focus-visible:ring-2 focus-visible:ring-token-focus",
-                  )}
-                  onClick={() => setOpen(true)}
-                >
-                  +{hiddenFileCount}
-                </button>
+                <NodexTooltip tooltipContent={hiddenSummaryTooltip}>
+                  <button
+                    type="button"
+                    aria-label={
+                      summaryShowsInPage
+                        ? `Open ${inPageFiles.length} ${inPageFiles.length === 1 ? "File" : "Files"} shown in Page`
+                        : `Open ${hiddenFileCount} more Page Files`
+                    }
+                    className={cn(
+                      DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME,
+                      "text-token-description-foreground outline-none hover:bg-token-foreground/5 hover:text-token-text-secondary focus-visible:ring-2 focus-visible:ring-token-focus",
+                    )}
+                    onClick={() => openFiles({ expandInPage: summaryShowsInPage })}
+                  >
+                    {summaryLabel}
+                  </button>
+                </NodexTooltip>
               ) : null}
               <button
                 type="button"
                 aria-label="Add Page Files"
                 className="flex size-5 shrink-0 items-center justify-center rounded-sm text-(--foreground-tertiary) opacity-60 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary) hover:opacity-100 focus-visible:outline-2 focus-visible:outline-token-focus focus-visible:opacity-100"
-                onClick={() => setOpen(true)}
+                onClick={() => openFiles()}
               >
                 <PlusIcon className="icon-2xs shrink-0" />
               </button>
@@ -630,6 +823,8 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
           setOpen(nextOpen);
           if (!nextOpen) {
             resetFileDrag();
+            setQuery("");
+            setInPageExpanded(false);
             setEditingFileId(null);
             setPreviewFileId(null);
             setPreview(null);
@@ -728,123 +923,45 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Filter by path"
                     aria-label="Filter Page Files"
-                    className="h-8 w-full rounded-lg bg-token-foreground/4 px-3 text-sm outline-none ring-1 ring-token-border focus:ring-token-focus"
+                    className="h-8 w-full rounded-lg bg-token-foreground/4 px-3 text-sm outline-none ring-[0.5px] ring-inset ring-token-border focus:ring-1 focus:ring-token-focus"
                   />
                 </div>
               ) : null}
-              {!loading && visibleFiles.length > 0 ? (
+              {!loading && visibleUnplacedFiles.length > 0 ? (
                 <div className="divide-y divide-token-border/70">
-                  {visibleFiles.map((file) => (
-                    <div key={file.fileId} className="group flex min-h-12 items-center gap-3 py-2">
-                      <button
-                        type="button"
-                        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-token-foreground/5 text-token-text-secondary hover:bg-token-foreground/9"
-                        onClick={() => void openPreview(file)}
-                        aria-label={`Preview ${file.logicalPath}`}
-                      >
-                        <FileResourceIcon
-                          path={file.logicalPath}
-                          mimeType={file.mimeType}
-                          className="icon-sm"
-                        />
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        {editingFileId === file.fileId ? (
-                          <form
-                            className="flex items-center gap-2"
-                            onSubmit={(event) => {
-                              event.preventDefault();
-                              void renameFile(file);
-                            }}
-                          >
-                            <input
-                              autoFocus
-                              value={editingPath}
-                              disabled={mutating}
-                              onChange={(event) => setEditingPath(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Escape") setEditingFileId(null);
-                              }}
-                              className="h-7 min-w-0 flex-1 rounded-md bg-token-foreground/5 px-2 text-sm outline-none ring-1 ring-token-border focus:ring-token-focus"
-                              aria-label="File path"
-                            />
-                            <button className="text-xs text-token-text-primary" type="submit">
-                              Save
-                            </button>
-                            <button
-                              className="text-xs text-token-description-foreground"
-                              type="button"
-                              onClick={() => setEditingFileId(null)}
-                            >
-                              Cancel
-                            </button>
-                          </form>
-                        ) : (
-                          <button
-                            type="button"
-                            className="block max-w-full truncate text-left text-sm text-token-text-primary hover:underline"
-                            onClick={() => void openPreview(file)}
-                          >
-                            {file.logicalPath}
-                          </button>
-                        )}
-                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-token-description-foreground">
-                          <span>{formatBytes(file.byteLength)}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>v{file.version}</span>
-                          <span aria-hidden="true">·</span>
-                          <span className="truncate">{file.mimeType}</span>
-                        </div>
-                      </div>
-                      {editingFileId !== file.fileId ? (
-                        <div
-                          className={cn(
-                            "flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-                            mutating && "pointer-events-none opacity-40",
-                          )}
-                        >
-                          <button
-                            type="button"
-                            className="rounded-md px-2 py-1 text-xs text-token-description-foreground hover:bg-token-foreground/6 hover:text-token-text-primary"
-                            onClick={() => {
-                              setEditingFileId(file.fileId);
-                              setEditingPath(file.logicalPath);
-                            }}
-                          >
-                            Rename
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded-md px-2 py-1 text-xs text-token-description-foreground hover:bg-token-foreground/6 hover:text-token-text-primary"
-                            onClick={() => void replaceFile(file)}
-                          >
-                            Replace
-                          </button>
-                          <button
-                            type="button"
-                            className="flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-foreground/6 hover:text-token-text-primary"
-                            onClick={() =>
-                              void savePageFile(contentAccessContext, {
-                                pageId,
-                                fileId: file.fileId,
-                                logicalPath: file.logicalPath,
-                              }).catch(() => toast.danger("Couldn’t save file"))
-                            }
-                            aria-label={`Download ${file.logicalPath}`}
-                          >
-                            <DownloadIcon className="icon-xs" />
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded-md px-2 py-1 text-xs text-token-description-foreground hover:bg-token-charts-red/10 hover:text-token-charts-red"
-                            onClick={() => void deleteFile(file)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      ) : null}
+                  {visibleUnplacedFiles.map(renderFileRow)}
+                </div>
+              ) : null}
+              {!loading && visibleInPageFiles.length > 0 ? (
+                <section
+                  className={cn(
+                    visibleUnplacedFiles.length > 0 && "mt-3 border-t border-token-border/70 pt-2",
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="flex h-8 w-full items-center gap-1 rounded-md px-1 text-left text-xs font-medium text-token-description-foreground outline-none hover:bg-token-foreground/4 hover:text-token-text-secondary focus-visible:ring-2 focus-visible:ring-token-focus"
+                    aria-expanded={inPageSectionExpanded}
+                    onClick={() => setInPageExpanded((expanded) => !expanded)}
+                  >
+                    <ChevronRightIcon
+                      className={cn(
+                        "icon-2xs shrink-0 transition-transform duration-150",
+                        inPageSectionExpanded && "rotate-90",
+                      )}
+                    />
+                    <span>In page · {visibleInPageFiles.length}</span>
+                  </button>
+                  {inPageSectionExpanded ? (
+                    <div className="divide-y divide-token-border/70">
+                      {visibleInPageFiles.map(renderFileRow)}
                     </div>
-                  ))}
+                  ) : null}
+                </section>
+              ) : null}
+              {!loading && searchActive && !hasSearchResults ? (
+                <div className="py-12 text-center text-sm text-token-description-foreground">
+                  No files match
                 </div>
               ) : null}
               {!loading && deletedFiles.length > 0 ? (
@@ -858,7 +975,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                         key={file.fileId}
                         className="flex min-h-10 items-center gap-3 py-1.5 opacity-70"
                       >
-                        <FileResourceIcon
+                        <ColorfulFileResourceIcon
                           path={file.logicalPath}
                           mimeType={file.mimeType}
                           className="icon-sm shrink-0 text-token-description-foreground"
@@ -905,7 +1022,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
               <div className="flex items-start justify-between gap-4 pr-8">
                 <div className="flex min-w-0 items-start gap-2">
                   {previewFile ? (
-                    <FileResourceIcon
+                    <ColorfulFileResourceIcon
                       path={previewFile.logicalPath}
                       mimeType={previewFile.mimeType}
                       className="icon-sm mt-0.5 shrink-0 text-token-text-secondary"
@@ -944,7 +1061,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                         }).catch(() => toast.danger("Couldn’t save file"))
                       }
                     >
-                      <DownloadIcon className="icon-xs" />
+                      <PlanDownloadIcon className="icon-xs" />
                       Download
                     </NodexDialogAction>
                   </div>

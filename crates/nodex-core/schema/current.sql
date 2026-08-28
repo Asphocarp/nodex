@@ -1459,6 +1459,7 @@ CREATE TABLE page_file_manifests (
   library_id TEXT NOT NULL,
   revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
   updated_at TEXT NOT NULL,
+  body_usage_revision INTEGER NOT NULL DEFAULT 0 CHECK (body_usage_revision >= 0),
   FOREIGN KEY (page_id, library_id)
     REFERENCES pages(block_id, library_id) ON UPDATE CASCADE ON DELETE CASCADE
 ) WITHOUT ROWID, STRICT;
@@ -3558,15 +3559,21 @@ CREATE TRIGGER page_file_manifests_advance_one_revision
 BEFORE UPDATE ON page_file_manifests
 WHEN OLD.page_id <> NEW.page_id
   OR OLD.library_id <> NEW.library_id
-  OR NEW.revision <> OLD.revision + 1
+  OR NOT (
+    (NEW.revision = OLD.revision + 1
+      AND NEW.body_usage_revision = OLD.body_usage_revision)
+    OR (NEW.revision = OLD.revision
+      AND NEW.body_usage_revision = OLD.body_usage_revision + 1)
+  )
 BEGIN
-  SELECT RAISE(ABORT, 'Page File manifest must advance by one revision');
+  SELECT RAISE(ABORT, 'Page File manifest or body usage must advance by one revision');
 END;
 CREATE TRIGGER pages_initialize_file_manifest
 AFTER INSERT ON pages
 BEGIN
-  INSERT INTO page_file_manifests(page_id, library_id, revision, updated_at)
-  VALUES (NEW.block_id, NEW.library_id, 0, NEW.updated_at);
+  INSERT INTO page_file_manifests(
+    page_id, library_id, revision, body_usage_revision, updated_at
+  ) VALUES (NEW.block_id, NEW.library_id, 0, 0, NEW.updated_at);
 END;
 CREATE TRIGGER page_file_versions_validate_insert
 BEFORE INSERT ON page_file_versions
@@ -4620,4 +4627,4 @@ CREATE TABLE operational_journal_state (
   ),
   CHECK (length(operation_identity_cutover_at) > 0)
 ) WITHOUT ROWID, STRICT;
-PRAGMA user_version = 138;
+PRAGMA user_version = 139;

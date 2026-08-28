@@ -124,6 +124,11 @@ const MIGRATION_STEPS: &[MigrationStep] = &[
         to_revision: 138,
         apply: migrate_v137_to_v138,
     },
+    MigrationStep {
+        from_revision: 138,
+        to_revision: 139,
+        apply: migrate_v138_to_v139,
+    },
 ];
 
 fn resolve_migration_path(
@@ -1160,6 +1165,30 @@ fn migrate_v137_to_v138(
     Ok(())
 }
 
+fn migrate_v138_to_v139(
+    connection: &Connection,
+    context: &MigrationContext,
+) -> Result<(), StoreError> {
+    connection.execute_batch(include_str!("../../schema/migrations/v138_to_v139.sql"))?;
+    connection.execute(
+        "INSERT INTO core_store_migration_history( \
+           source_revision, target_revision, source_schema_fingerprint, \
+           target_schema_fingerprint, backup_name, completed_at_unix_ms, evidence_json \
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, json_object('page_file_manifests', \
+           (SELECT count(*) FROM page_file_manifests)))",
+        params![
+            context.source_revision,
+            context.target_revision,
+            context.source_schema_fingerprint,
+            context.target_schema_fingerprint,
+            context.backup_name,
+            context.completed_at_unix_ms,
+        ],
+    )?;
+    connection.pragma_update(None, "user_version", context.target_revision)?;
+    Ok(())
+}
+
 fn install_fresh_profile(connection: &mut Connection, now: u64) -> Result<(), StoreError> {
     install_fresh_profile_with(connection, |transaction| {
         initialize_fresh_profile(transaction, now)
@@ -1447,6 +1476,25 @@ mod tests {
         Ok(())
     }
 
+    fn expected_migration_events(from_revision: i64) -> Vec<StorePreparationEvent> {
+        let steps = MIGRATION_STEPS
+            .iter()
+            .filter(|step| step.from_revision >= from_revision)
+            .collect::<Vec<_>>();
+        let total = u64::try_from(steps.len()).expect("migration count fits u64");
+        steps
+            .iter()
+            .map(|step| StorePreparationEvent::MigrationStarted {
+                from_version: step.from_revision,
+                to_version: step.to_revision,
+            })
+            .chain(
+                (1..=total)
+                    .map(|completed| StorePreparationEvent::MigrationProgress { completed, total }),
+            )
+            .collect()
+    }
+
     #[test]
     fn migration_path_orders_every_revision_until_current() {
         let steps = [
@@ -1724,75 +1772,7 @@ mod tests {
             })
             .expect("migrate baseline");
         assert_eq!(preparation.migrated_from_version, Some(130));
-        assert_eq!(
-            events,
-            vec![
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 130,
-                    to_version: 131,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 131,
-                    to_version: 132,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 132,
-                    to_version: 133,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 133,
-                    to_version: 134,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 134,
-                    to_version: 135,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 135,
-                    to_version: 136,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 136,
-                    to_version: 137,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 137,
-                    to_version: 138,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 1,
-                    total: 8,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 2,
-                    total: 8,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 3,
-                    total: 8,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 4,
-                    total: 8,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 5,
-                    total: 8,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 6,
-                    total: 8,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 7,
-                    total: 8,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 8,
-                    total: 8,
-                },
-            ]
-        );
+        assert_eq!(events, expected_migration_events(130));
         let history = connection
             .prepare(
                 "SELECT source_revision, target_revision, source_schema_fingerprint, \
@@ -1813,7 +1793,7 @@ mod tests {
             .expect("migration history")
             .collect::<rusqlite::Result<Vec<_>>>()
             .expect("migration history rows");
-        assert_eq!(history.len(), 8);
+        assert_eq!(history.len(), 9);
         assert_eq!((history[0].0, history[0].1), (130, 131));
         assert_eq!((history[1].0, history[1].1), (131, 132));
         assert_eq!((history[2].0, history[2].1), (132, 133));
@@ -1822,6 +1802,7 @@ mod tests {
         assert_eq!((history[5].0, history[5].1), (135, 136));
         assert_eq!((history[6].0, history[6].1), (136, 137));
         assert_eq!((history[7].0, history[7].1), (137, 138));
+        assert_eq!((history[8].0, history[8].1), (138, 139));
         assert_eq!(
             history[0].2,
             published_format(130)
@@ -1883,13 +1864,13 @@ mod tests {
                 .schema_fingerprint
         );
         assert_eq!(
-            history[7].3,
-            published_format(138)
-                .expect("v138 format")
+            history[8].3,
+            published_format(139)
+                .expect("v139 format")
                 .schema_fingerprint
         );
         assert!(history.iter().all(|row| row.4 == history[0].4));
-        assert!(history[0].4.starts_with("v130-to-v138-"));
+        assert!(history[0].4.starts_with("v130-to-v139-"));
         assert!(history[0].4.ends_with(".db"));
         assert!(history.iter().all(|row| row.5 > 0));
         let backup_path = directory
@@ -1921,7 +1902,7 @@ mod tests {
                     |row| { row.get::<_, i64>(0) }
                 )
                 .expect("stable history"),
-            8
+            9
         );
         assert_eq!(
             fs::read_dir(directory.path().join("backups/core-migrations"))
@@ -1945,68 +1926,8 @@ mod tests {
             .expect("migrate v131");
 
         assert_eq!(preparation.migrated_from_version, Some(131));
-        assert_eq!(preparation.schema_version, 138);
-        assert_eq!(
-            events,
-            vec![
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 131,
-                    to_version: 132,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 132,
-                    to_version: 133,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 133,
-                    to_version: 134,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 134,
-                    to_version: 135,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 135,
-                    to_version: 136,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 136,
-                    to_version: 137,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 137,
-                    to_version: 138,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 1,
-                    total: 7,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 2,
-                    total: 7,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 3,
-                    total: 7,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 4,
-                    total: 7,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 5,
-                    total: 7,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 6,
-                    total: 7,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 7,
-                    total: 7,
-                },
-            ]
-        );
+        assert_eq!(preparation.schema_version, CURRENT_STORE_REVISION);
+        assert_eq!(events, expected_migration_events(131));
         validate_current_store(&connection).expect("current Store");
         assert_eq!(
             connection
@@ -2016,7 +1937,7 @@ mod tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .expect("migration history"),
-            8
+            9
         );
     }
 
@@ -2035,60 +1956,8 @@ mod tests {
             .expect("migrate v132");
 
         assert_eq!(preparation.migrated_from_version, Some(132));
-        assert_eq!(preparation.schema_version, 138);
-        assert_eq!(
-            events,
-            vec![
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 132,
-                    to_version: 133,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 133,
-                    to_version: 134,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 134,
-                    to_version: 135,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 135,
-                    to_version: 136,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 136,
-                    to_version: 137,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 137,
-                    to_version: 138,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 1,
-                    total: 6,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 2,
-                    total: 6,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 3,
-                    total: 6,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 4,
-                    total: 6,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 5,
-                    total: 6,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 6,
-                    total: 6,
-                },
-            ]
-        );
+        assert_eq!(preparation.schema_version, CURRENT_STORE_REVISION);
+        assert_eq!(events, expected_migration_events(132));
         validate_current_store(&connection).expect("current Store");
         assert_eq!(
             connection
@@ -2098,7 +1967,7 @@ mod tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .expect("migration history"),
-            6
+            7
         );
         assert_eq!(
             connection
@@ -2138,52 +2007,8 @@ mod tests {
             .expect("migrate v133");
 
         assert_eq!(preparation.migrated_from_version, Some(133));
-        assert_eq!(preparation.schema_version, 138);
-        assert_eq!(
-            events,
-            vec![
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 133,
-                    to_version: 134,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 134,
-                    to_version: 135,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 135,
-                    to_version: 136,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 136,
-                    to_version: 137,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 137,
-                    to_version: 138,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 1,
-                    total: 5,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 2,
-                    total: 5,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 3,
-                    total: 5,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 4,
-                    total: 5,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 5,
-                    total: 5,
-                },
-            ]
-        );
+        assert_eq!(preparation.schema_version, CURRENT_STORE_REVISION);
+        assert_eq!(events, expected_migration_events(133));
         validate_current_store(&connection).expect("current Store");
         for table in [
             "codex_queued_follow_up_ledgers",
@@ -2221,28 +2046,8 @@ mod tests {
             .expect("migrate v136");
 
         assert_eq!(preparation.migrated_from_version, Some(136));
-        assert_eq!(preparation.schema_version, 138);
-        assert_eq!(
-            events,
-            vec![
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 136,
-                    to_version: 137,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 137,
-                    to_version: 138,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 1,
-                    total: 2,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 2,
-                    total: 2,
-                },
-            ]
-        );
+        assert_eq!(preparation.schema_version, CURRENT_STORE_REVISION);
+        assert_eq!(events, expected_migration_events(136));
         validate_current_store(&connection).expect("current Store");
         assert_eq!(profile_secrets(&connection), source_secrets);
         let (source_revision, target_revision, backup_name) = connection
@@ -2260,8 +2065,8 @@ mod tests {
                 },
             )
             .expect("v136 migration history");
-        assert_eq!((source_revision, target_revision), (137, 138));
-        assert!(backup_name.starts_with("v136-to-v138-"));
+        assert_eq!((source_revision, target_revision), (138, 139));
+        assert!(backup_name.starts_with("v136-to-v139-"));
         let backup_path = directory
             .path()
             .join("backups/core-migrations")
@@ -2281,7 +2086,7 @@ mod tests {
                     |row| row.get::<_, i64>(0),
                 )
                 .expect("stable history"),
-            2
+            3
         );
         assert_eq!(
             fs::read_dir(directory.path().join("backups/core-migrations"))
@@ -2526,7 +2331,7 @@ mod tests {
         install_baseline_fixture(non_file.path());
         let backup_directory = non_file.path().join("backups/core-migrations");
         fs::create_dir_all(&backup_directory).expect("backup directory");
-        fs::create_dir(backup_directory.join(".v130-to-v138.pending.db"))
+        fs::create_dir(backup_directory.join(".v130-to-v139.pending.db"))
             .expect("non-file pending candidate");
         let mut connection = open_writer(&non_file.path().join("nodex.db")).expect("writer");
         let error = prepare_profile_store(&mut connection, non_file.path())
@@ -2536,7 +2341,7 @@ mod tests {
 
     #[test]
     fn migration_registry_is_contiguous_and_forward_only() {
-        assert_eq!(MIGRATION_STEPS.len(), 8);
+        assert_eq!(MIGRATION_STEPS.len(), 9);
         for (index, step) in MIGRATION_STEPS.iter().enumerate() {
             assert!(step.from_revision < step.to_revision);
             if let Some(next) = MIGRATION_STEPS.get(index + 1) {

@@ -28,7 +28,14 @@ describe("paste resource dialog", () => {
             canInsertInline: true,
             replaceCurrentEmptyParagraph: true,
           },
-          items: [{ kind: "file", name: "report.txt", path: "/tmp/report.txt" }],
+          items: [
+            {
+              kind: "file",
+              name: "result.json",
+              path: "/tmp/result.json",
+              mimeType: "application/json",
+            },
+          ],
           allowLink: true,
         }}
         onOpenChange={() => {}}
@@ -58,6 +65,10 @@ describe("paste resource dialog", () => {
     expect(textContent(withLinkRender.container).includes("Keep as Link")).toBe(true);
     expect(textContent(withoutLinkRender.container).includes("Keep as Link")).toBe(false);
     expect(textContent(withoutLinkRender.container).includes("Save a Copy")).toBe(true);
+    const linkedFileIcon = withLinkRender.container.querySelector<SVGSVGElement>(
+      "[data-file-tab-icon='json']",
+    );
+    expect(linkedFileIcon?.style.color).toContain("trees-file-icon-color-json");
   });
 
   test("renders user-friendly oversized-text actions without link mode", async () => {

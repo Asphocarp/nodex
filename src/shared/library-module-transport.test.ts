@@ -896,6 +896,58 @@ describe("Library Module transport", () => {
     });
   });
 
+  test("parses Page File body usage and rejects impossible placement counts", () => {
+    const file = {
+      fileId: "file-1",
+      ownerPageId: "page-1",
+      logicalPath: "images/diagram.png",
+      mimeType: "image/png",
+      byteLength: 12,
+      version: 1,
+      blobEtag: "etag-1",
+      state: "live",
+      createdByActorId: "actor-1",
+      createdByTurnId: null,
+      createdAt: "2026-08-28T00:00:00.000Z",
+      updatedAt: "2026-08-28T00:00:00.000Z",
+      bodyUsage: { kind: "placed", placementCount: 2 },
+    };
+    const manifest = {
+      kind: "page_files",
+      value: {
+        pageId: "page-1",
+        revision: 3,
+        bodyUsageRevision: 4,
+        files: [file],
+        nextCursor: null,
+        hasMore: false,
+        total: 1,
+      },
+    };
+
+    expect(parseLibraryModuleReadResult(readResult(manifest))).toMatchObject({
+      value: {
+        value: {
+          value: {
+            bodyUsageRevision: 4,
+            files: [{ bodyUsage: { kind: "placed", placementCount: 2 } }],
+          },
+        },
+      },
+    });
+    expect(() =>
+      parseLibraryModuleReadResult(
+        readResult({
+          ...manifest,
+          value: {
+            ...manifest.value,
+            files: [{ ...file, bodyUsage: { kind: "placed", placementCount: 0 } }],
+          },
+        }),
+      ),
+    ).toThrow("placementCount must be positive");
+  });
+
   test("parses primary Canvas mutation receipts without weakening new IDs", () => {
     expect(
       parseLibraryModuleApplyResult({

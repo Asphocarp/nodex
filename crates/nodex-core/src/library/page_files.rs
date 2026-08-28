@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use nodex_core_contracts::library::{
-    LibraryPageFileChange, LibraryPageFileChangeKind, LibraryPageFileManifest,
-    LibraryPageFileMutationReceipt, LibraryPageFileState, LibraryPageFileSummary,
-    LibraryPageFileVersion, LibraryPageFileVersionPage,
+    LibraryPageFileBodyUsage, LibraryPageFileChange, LibraryPageFileChangeKind,
+    LibraryPageFileManifest, LibraryPageFileMutationReceipt, LibraryPageFileState,
+    LibraryPageFileSummary, LibraryPageFileVersion, LibraryPageFileVersionPage,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -97,6 +97,7 @@ pub(super) fn list(
     include_deleted: bool,
 ) -> Result<LibraryPageFileManifest, StoreError> {
     let revision = manifest_revision(connection, library_id, page_id)?;
+    let body_usage_revision = body_usage_revision(connection, library_id, page_id)?;
     let limit = read_limit(requested_limit)?;
     let subject = vec![
         "page_files".to_owned(),
@@ -118,7 +119,9 @@ pub(super) fn list(
                       WHERE prior.file_id = file.file_id AND prior.blob_hash IS NOT NULL \
                       ORDER BY prior.version DESC LIMIT 1 \
                     )), file.created_by_actor_id, file.created_by_turn_id, \
-                    file.created_at, file.updated_at, file.path_key \
+                    file.created_at, file.updated_at, file.path_key, \
+                    (SELECT COUNT(*) FROM block_asset_refs reference \
+                     WHERE reference.page_file_id = file.file_id) \
              FROM page_files file \
              JOIN page_file_versions current_version \
                ON current_version.file_id = file.file_id \
@@ -171,6 +174,7 @@ pub(super) fn list(
     Ok(LibraryPageFileManifest {
         page_id: page_id.to_owned(),
         revision,
+        body_usage_revision,
         files,
         next_cursor,
         has_more,
@@ -195,7 +199,9 @@ pub(super) fn metadata(
                       WHERE prior.file_id = file.file_id AND prior.blob_hash IS NOT NULL \
                       ORDER BY prior.version DESC LIMIT 1 \
                     )), file.created_by_actor_id, file.created_by_turn_id, \
-                    file.created_at, file.updated_at, file.path_key \
+                    file.created_at, file.updated_at, file.path_key, \
+                    (SELECT COUNT(*) FROM block_asset_refs reference \
+                     WHERE reference.page_file_id = file.file_id) \
              FROM page_files file \
              JOIN page_file_versions current_version \
                ON current_version.file_id = file.file_id \
@@ -1535,6 +1541,15 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryPageFile
     let byte_length = row.get::<_, i64>(4)?;
     let state = state_from_name(&row.get::<_, String>(6)?)?;
     let blob_etag = row.get::<_, Option<String>>(7)?.unwrap_or_default();
+    let placement_count = row.get::<_, i64>(13)?;
+    let body_usage = if placement_count == 0 {
+        LibraryPageFileBodyUsage::NotInBody
+    } else {
+        LibraryPageFileBodyUsage::Placed {
+            placement_count: u64::try_from(placement_count)
+                .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(13, placement_count))?,
+        }
+    };
     Ok(LibraryPageFileSummary {
         file_id: row.get(0)?,
         owner_page_id: row.get(1)?,
@@ -1549,7 +1564,24 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryPageFile
         created_by_turn_id: row.get(9)?,
         created_at: row.get(10)?,
         updated_at: row.get(11)?,
+        body_usage,
     })
+}
+
+fn body_usage_revision(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<i64, StoreError> {
+    connection
+        .query_row(
+            "SELECT body_usage_revision FROM page_file_manifests \
+             WHERE library_id = ?1 AND page_id = ?2",
+            params![library_id, page_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Page File body usage is unavailable"))
 }
 
 fn current_file_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CurrentFile> {
@@ -1975,5 +2007,84 @@ mod tests {
         assert_eq!(restored.files[0].state, LibraryPageFileState::Live);
         assert_eq!(restored.files[0].version, 3);
         assert_eq!(restored.files[0].logical_path, "brief.md");
+    }
+
+    #[test]
+    fn manifest_projects_body_placement_counts_without_advancing_file_revision() {
+        let (_directory, kernel, module) = seeded_library();
+        seed_receipt(&kernel, "operation:create-file", "receipt-a", 'a');
+        module
+            .apply(
+                &context(),
+                apply_request(
+                    "operation:create-file",
+                    0,
+                    vec![LibraryPageFileChange::Create {
+                        file_id: "file-a".to_owned(),
+                        logical_path: "diagram.png".to_owned(),
+                        mime_type: "image/png".to_owned(),
+                        prepared_blob_receipt_id: "receipt-a".to_owned(),
+                    }],
+                ),
+            )
+            .expect("create File");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    let (block_id, projected_seq) = transaction.query_row(
+                        "SELECT block_id, projected_seq FROM document_block_index \
+                         WHERE document_id = 'document-1' ORDER BY ordinal LIMIT 1",
+                        [],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_asset_refs( \
+                           document_id, block_id, owner_block_id, library_id, document_generation, \
+                           projected_seq, projection_version, role, ordinal, asset_uri, asset_hash, \
+                           page_file_id, updated_at \
+                         ) VALUES( \
+                           'document-1', ?1, 'page-1', 'library-1', 1, ?2, 1, \
+                           'image', 0, 'nodex://files/file-a', ?3, 'file-a', ?4 \
+                         )",
+                        params![block_id, projected_seq, "a".repeat(64), NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE page_file_manifests \
+                         SET body_usage_revision = 1, updated_at = ?1 \
+                         WHERE page_id = 'page-1' AND library_id = 'library-1'",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("place File in Page body projection");
+
+        let placed = manifest(&module, false);
+        assert_eq!(placed.revision, 1);
+        assert_eq!(placed.body_usage_revision, 1);
+        assert_eq!(
+            placed.files[0].body_usage,
+            LibraryPageFileBodyUsage::Placed { placement_count: 1 },
+        );
+
+        module
+            .apply(
+                &context(),
+                apply_request(
+                    "operation:rename-file",
+                    1,
+                    vec![LibraryPageFileChange::Rename {
+                        file_id: "file-a".to_owned(),
+                        expected_version: 1,
+                        logical_path: "renamed.png".to_owned(),
+                    }],
+                ),
+            )
+            .expect("rename File");
+        let renamed = manifest(&module, false);
+        assert_eq!(renamed.revision, 2);
+        assert_eq!(renamed.body_usage_revision, 1);
     }
 }

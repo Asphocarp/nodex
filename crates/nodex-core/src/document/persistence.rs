@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
@@ -383,6 +383,9 @@ fn persist_yjs_commit_inner(
             )
         })?;
     let now = sqlite_now(connection)?;
+    let page_file_body_usage_changed = input.authority.owner_type == "page"
+        && page_file_body_usage_counts(input.base_materialization)
+            != page_file_body_usage_counts(input.materialization);
     let placement_delta =
         derive_document_placement_delta(input.base_materialization, input.materialization);
     let derived_touched_block_ids = derive_touched_block_ids(
@@ -528,6 +531,9 @@ fn persist_yjs_commit_inner(
         &now,
         true,
     )?;
+    if page_file_body_usage_changed {
+        advance_page_file_body_usage_revision(connection, input.authority, &now)?;
+    }
     let payload = json!({
         "module": "owned_document",
         "kind": input.event_kind,
@@ -538,6 +544,7 @@ fn persist_yjs_commit_inner(
         "updateHash": update_hash,
         "updateByteLength": input.update.len(),
         "localCommitId": input.local_commit_id,
+        "pageFileBodyUsageChanged": page_file_body_usage_changed,
     });
     let page_impact = input.authority.page_impact();
     let owner_projection_impact = impact_for_page_document(
@@ -665,6 +672,8 @@ fn persist_yjs_genesis_inner(
         ));
     }
     let now = sqlite_now(connection)?;
+    let page_file_body_usage_changed = input.authority.owner_type == "page"
+        && !page_file_body_usage_counts(input.materialization).is_empty();
     validate_document_references(
         connection,
         &input.authority.head.library_id,
@@ -795,6 +804,9 @@ fn persist_yjs_genesis_inner(
         &now,
         page_projection_required,
     )?;
+    if page_file_body_usage_changed {
+        advance_page_file_body_usage_revision(connection, input.authority, &now)?;
+    }
     let event_sequence = if input.emit_event {
         let payload = json!({
             "module": "owned_document",
@@ -805,6 +817,7 @@ fn persist_yjs_genesis_inner(
             "updateId": input.update_id,
             "updateHash": update_hash,
             "updateByteLength": input.update.len(),
+            "pageFileBodyUsageChanged": page_file_body_usage_changed,
         });
         let page_impact = input.authority.page_impact();
         let projection_impact = impact_for_page_document(
@@ -1751,6 +1764,38 @@ fn page_reference_target_impact(reference_sets: &[&[BlockDocumentReference]]) ->
         view_ids: Vec::new(),
         document_heads: Vec::new(),
     }
+}
+
+fn page_file_body_usage_counts(materialization: &DocumentMaterialization) -> BTreeMap<&str, usize> {
+    let mut counts = BTreeMap::new();
+    for file_id in materialization
+        .asset_refs
+        .iter()
+        .filter_map(|reference| reference.file_id.as_deref())
+    {
+        *counts.entry(file_id).or_insert(0) += 1;
+    }
+    counts
+}
+
+fn advance_page_file_body_usage_revision(
+    connection: &Connection,
+    authority: &DocumentAuthorityRow,
+    now: &str,
+) -> Result<(), StoreError> {
+    let changed = connection.execute(
+        "UPDATE page_file_manifests \
+         SET body_usage_revision = body_usage_revision + 1, updated_at = ?1 \
+         WHERE page_id = ?2 AND library_id = ?3 \
+           AND body_usage_revision < 9223372036854775807",
+        params![now, authority.owner_block_id, authority.head.library_id],
+    )?;
+    if changed == 1 {
+        return Ok(());
+    }
+    Err(corrupt(
+        "Page File body usage revision authority is unavailable",
+    ))
 }
 
 pub(super) fn replace_secondary_projections(

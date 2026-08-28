@@ -13,7 +13,7 @@ const PNG_DATA_URL =
 const primaryShortcut = (key: string): string =>
   `${process.platform === "darwin" ? "Meta" : "Control"}+${key}`;
 
-test("pastes an image transactionally without refreshing Files on body edits", async () => {
+test("pastes an image and refreshes Files only for body placement changes", async () => {
   test.setTimeout(180_000);
   await withElectronScenario(
     {
@@ -83,8 +83,21 @@ test("pastes an image transactionally without refreshing Files on body edits", a
       await expect(pastedImage).toBeVisible({ timeout: 15_000 });
       await expect(pastedImage).toHaveAttribute("src", /^data:image\/png;base64,/u);
       await expect(stage.getByText("Add image", { exact: true })).toHaveCount(0);
+      await expect(stage.locator('[data-page-file-chip="true"]')).toHaveCount(0);
+
+      const inPageSummary = stage.getByRole("button", {
+        name: "Open 1 File shown in Page",
+      });
+      await expect(inPageSummary).toHaveText("1 in page");
+      await inPageSummary.click();
+
+      const dialog = page.getByRole("dialog", { name: "Files" });
+      await expect(dialog.getByRole("button", { name: "In page · 1" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
       await expect(
-        stage.locator('[data-page-file-chip="true"] [data-file-tab-icon="image"]'),
+        dialog.getByRole("button", { name: /^Preview /u }).locator('[data-file-tab-icon="image"]'),
       ).toBeVisible();
     },
   );

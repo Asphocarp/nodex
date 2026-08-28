@@ -801,6 +801,7 @@ impl LibraryModule {
             view_ids: Vec::new(),
             parent_keys: Vec::new(),
             page_file_manifest_revisions: BTreeMap::new(),
+            page_file_body_usage_revisions: BTreeMap::new(),
         });
         let projection_impact = match target {
             LibraryResourceTarget::Page { .. } => {

@@ -2603,6 +2603,7 @@ describe("Core Library Module Adapter", () => {
           event: {
             kind: "library_changed",
             page_file_manifest_revisions: {},
+            page_file_body_usage_revisions: {},
             page_ids: ["page:one"],
             database_ids: ["database:one"],
             view_ids: [],

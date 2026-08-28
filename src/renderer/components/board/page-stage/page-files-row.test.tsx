@@ -26,11 +26,34 @@ import { PageFilesRow } from "./page-files-row";
 const emptyManifest = {
   pageId: "page-1",
   revision: 0,
+  bodyUsageRevision: 0,
   files: [],
   nextCursor: null,
   hasMore: false,
   total: 0,
 } as const;
+
+const pageFile = (
+  fileId: string,
+  logicalPath: string,
+  bodyUsage:
+    | { readonly kind: "not_in_body" }
+    | { readonly kind: "placed"; readonly placementCount: number },
+) => ({
+  fileId,
+  ownerPageId: "page-1",
+  logicalPath,
+  mimeType: logicalPath.endsWith(".png") ? "image/png" : "text/plain",
+  byteLength: 12,
+  version: 1,
+  blobEtag: `etag-${fileId}`,
+  state: "live" as const,
+  createdByActorId: "actor-1",
+  createdByTurnId: null,
+  createdAt: "2026-08-28T00:00:00.000Z",
+  updatedAt: "2026-08-28T00:00:00.000Z",
+  bodyUsage,
+});
 
 const controller = {
   page: {
@@ -205,5 +228,101 @@ describe("PageFilesRow native file drop", () => {
       ],
     });
     expect(toastApi.danger).not.toHaveBeenCalled();
+  });
+
+  test("summarizes fully placed Files and opens their expanded inventory", async () => {
+    api.readLibraryModule.mockResolvedValue({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_files",
+          value: {
+            ...emptyManifest,
+            files: [
+              pageFile("file-image", "images/diagram.png", {
+                kind: "placed",
+                placementCount: 2,
+              }),
+            ],
+            total: 1,
+          },
+        },
+      },
+    });
+
+    const view = render(<PageFilesRow controller={controller} />);
+    const summary = await view.findByRole("button", {
+      name: "Open 1 File shown in Page",
+    });
+    expect(view.queryByText("Empty", { exact: true })).toBeNull();
+    expect(view.container.querySelector('[data-page-file-chip="true"]')).toBeNull();
+    expect(summary.textContent).toBe("1 in page");
+
+    await act(async () => {
+      fireEvent.click(summary);
+      await Promise.resolve();
+    });
+
+    const disclosure = view.getByRole("button", { name: "In page · 1" });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(view.getByText("images/diagram.png", { exact: true })).toBeTruthy();
+    expect(view.getByText("2 placements", { exact: true })).toBeTruthy();
+    const renameAction = view.getByRole("button", { name: "Rename images/diagram.png" });
+    expect(renameAction.textContent).toBe("");
+
+    await act(async () => {
+      fireEvent.pointerMove(renameAction, { pointerType: "mouse" });
+      fireEvent.mouseEnter(renameAction);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.getByRole("tooltip").textContent).toBe("Rename"));
+  });
+
+  test("keeps placed Files collapsed by default and searches across the full inventory", async () => {
+    api.readLibraryModule.mockResolvedValue({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_files",
+          value: {
+            ...emptyManifest,
+            files: [
+              pageFile("file-a", "a.txt", { kind: "not_in_body" }),
+              pageFile("file-b", "b.txt", { kind: "not_in_body" }),
+              pageFile("file-c", "c.txt", { kind: "not_in_body" }),
+              pageFile("file-image", "images/diagram.png", {
+                kind: "placed",
+                placementCount: 1,
+              }),
+            ],
+            total: 4,
+          },
+        },
+      },
+    });
+
+    const view = render(<PageFilesRow controller={controller} />);
+    const more = await view.findByRole("button", { name: "Open 2 more Page Files" });
+    expect(more.textContent).toBe("+2");
+
+    await act(async () => {
+      fireEvent.click(more);
+      await Promise.resolve();
+    });
+    expect(view.getByRole("button", { name: "In page · 1" }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+    expect(view.queryByText("images/diagram.png", { exact: true })).toBeNull();
+
+    await act(async () => {
+      fireEvent.change(view.getByRole("textbox", { name: "Filter Page Files" }), {
+        target: { value: "diagram" },
+      });
+      await Promise.resolve();
+    });
+    expect(view.getByRole("button", { name: "In page · 1" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    expect(view.getByText("images/diagram.png", { exact: true })).toBeTruthy();
   });
 });
