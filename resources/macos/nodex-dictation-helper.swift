@@ -4,7 +4,7 @@ import CoreAudio
 import CoreGraphics
 import Foundation
 
-private let protocolVersion = 1
+private let protocolVersion = 2
 private let maximumMessageBytes = 64 * 1024
 private let maximumPasteboardFormatBytes = 8 * 1024 * 1024
 private let maximumPasteboardSnapshotBytes = 32 * 1024 * 1024
@@ -13,22 +13,11 @@ private let relevantFlags: CGEventFlags = [.maskCommand, .maskControl, .maskAlte
 private struct Hotkey {
     let id: String
     let mode: String
-    let accelerator: String
+    let configurationGeneration: UInt64
     let modifiers: CGEventFlags
     let keyCode: CGKeyCode?
     let bareModifierKeyCodes: Set<CGKeyCode>?
     var pressed: Bool
-}
-
-private struct ParsedAccelerator {
-    let modifiers: CGEventFlags
-    let keyCode: CGKeyCode?
-    let bareModifierKeyCodes: Set<CGKeyCode>?
-}
-
-private struct BareModifierSpec {
-    let modifiers: CGEventFlags
-    let keyCodes: Set<CGKeyCode>
 }
 
 private final class HelperState {
@@ -103,49 +92,30 @@ private func handle(_ request: [String: Any]) {
             kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true,
         ] as CFDictionary
         emitResponse(id: id, value: ["granted": AXIsProcessTrustedWithOptions(options)])
-    case "register":
-        guard let bindingId = request["bindingId"] as? String,
-              let mode = request["mode"] as? String,
-              mode == "hold" || mode == "toggle",
-              let accelerator = request["accelerator"] as? String,
-              let parsed = parseAccelerator(accelerator)
+    case "replaceBindings":
+        guard let generationValue = request["generation"] as? NSNumber,
+              generationValue.uint64Value > 0,
+              let rawBindings = request["bindings"] as? [[String: Any]],
+              rawBindings.count <= 8,
+              let bindings = parseBindings(rawBindings, generation: generationValue.uint64Value)
         else {
             emitError(id: id, code: "invalid-hotkey")
             return
         }
-        if HelperState.shared.hotkeys.values.contains(where: {
-            $0.id != bindingId
-                && $0.modifiers == parsed.modifiers
-                && $0.keyCode == parsed.keyCode
-                && $0.bareModifierKeyCodes == parsed.bareModifierKeyCodes
-        }) {
+        if hasHotkeyConflict(bindings) {
             emitError(id: id, code: "hotkey-conflict")
             return
         }
-        guard installEventTapIfNeeded() else {
+        if bindings.count > 0 && !installEventTapIfNeeded() {
             emitError(id: id, code: "input-monitoring-denied")
             return
         }
-        HelperState.shared.hotkeys[bindingId] = Hotkey(
-            id: bindingId,
-            mode: mode,
-            accelerator: accelerator,
-            modifiers: parsed.modifiers,
-            keyCode: parsed.keyCode,
-            bareModifierKeyCodes: parsed.bareModifierKeyCodes,
-            pressed: false
-        )
-        emitResponse(id: id, value: ["registered": true])
-    case "unregister":
-        guard let bindingId = request["bindingId"] as? String else {
-            emitError(id: id, code: "invalid-hotkey")
-            return
-        }
-        HelperState.shared.hotkeys.removeValue(forKey: bindingId)
-        if HelperState.shared.hotkeys.isEmpty && HelperState.shared.captureRequestId == nil {
-            uninstallEventTap()
-        }
-        emitResponse(id: id, value: ["registered": false])
+        HelperState.shared.hotkeys = bindings
+        if bindings.isEmpty && HelperState.shared.captureRequestId == nil { uninstallEventTap() }
+        emitResponse(id: id, value: [
+            "applied": true,
+            "generation": generationValue,
+        ])
     case "captureFn":
         guard installEventTapIfNeeded() else {
             emitError(id: id, code: "input-monitoring-denied")
@@ -464,7 +434,8 @@ private func emitHotkeyEvent(hotkey: Hotkey, type: String) {
         "type": type,
         "bindingId": hotkey.id,
         "mode": hotkey.mode,
-        "generation": HelperState.shared.generation,
+        "configurationGeneration": hotkey.configurationGeneration,
+        "sequence": HelperState.shared.generation,
     ]
     if let application = NSWorkspace.shared.frontmostApplication {
         event["target"] = [
@@ -475,80 +446,85 @@ private func emitHotkeyEvent(hotkey: Hotkey, type: String) {
     emit(event)
 }
 
-private func parseAccelerator(_ value: String) -> ParsedAccelerator? {
-    if let bareModifier = bareModifierSpec(value) {
-        return ParsedAccelerator(
-            modifiers: bareModifier.modifiers,
-            keyCode: nil,
-            bareModifierKeyCodes: bareModifier.keyCodes
-        )
-    }
+private func parseBindings(
+    _ values: [[String: Any]],
+    generation: UInt64
+) -> [String: Hotkey]? {
+    var result: [String: Hotkey] = [:]
+    for value in values {
+        guard let bindingId = value["bindingId"] as? String,
+              !bindingId.isEmpty,
+              bindingId.count <= 128,
+              result[bindingId] == nil,
+              let mode = value["mode"] as? String,
+              mode == "hold" || mode == "toggle",
+              let modifierNames = value["modifiers"] as? [String],
+              !modifierNames.isEmpty,
+              Set(modifierNames).count == modifierNames.count,
+              value["keyCode"] is NSNumber || value["keyCode"] is NSNull,
+              value["bareModifierKeyCodes"] is [NSNumber]
+                || value["bareModifierKeyCodes"] is NSNull,
+              let modifiers = parseModifiers(modifierNames)
+        else { return nil }
 
-    let parts = value.split(separator: "+").map(String.init)
-    guard !parts.isEmpty else { return nil }
-    var modifiers: CGEventFlags = []
-    var keyCode: CGKeyCode?
-    for part in parts {
-        switch part.lowercased() {
-        case "cmdorctrl", "command", "cmd": modifiers.insert(.maskCommand)
-        case "ctrl", "control": modifiers.insert(.maskControl)
-        case "alt", "option": modifiers.insert(.maskAlternate)
-        case "shift": modifiers.insert(.maskShift)
-        default:
-            guard keyCode == nil, let resolved = keyCodeForName(part) else { return nil }
-            keyCode = resolved
+        let keyNumber = value["keyCode"] as? NSNumber
+        if let keyNumber, !isValidKeyCode(keyNumber) { return nil }
+        let bareNumbers = value["bareModifierKeyCodes"] as? [NSNumber]
+        if let bareNumbers, bareNumbers.contains(where: { !isValidKeyCode($0) }) { return nil }
+        let keyCode = keyNumber.map { CGKeyCode($0.uint16Value) }
+        let bareKeyCodes = bareNumbers.map { Set($0.map { CGKeyCode($0.uint16Value) }) }
+        let hasKey = keyCode != nil
+        let hasBareKeys = !(bareKeyCodes?.isEmpty ?? true)
+        guard hasKey != hasBareKeys else { return nil }
+
+        let hotkey = Hotkey(
+            id: bindingId,
+            mode: mode,
+            configurationGeneration: generation,
+            modifiers: modifiers,
+            keyCode: keyCode,
+            bareModifierKeyCodes: bareKeyCodes,
+            pressed: false
+        )
+        result[bindingId] = hotkey
+    }
+    return result
+}
+
+private func hasHotkeyConflict(_ bindings: [String: Hotkey]) -> Bool {
+    let values = Array(bindings.values)
+    for index in values.indices {
+        for candidateIndex in values.indices where candidateIndex > index {
+            let value = values[index]
+            let candidate = values[candidateIndex]
+            if value.modifiers == candidate.modifiers
+                && value.keyCode == candidate.keyCode
+                && value.bareModifierKeyCodes == candidate.bareModifierKeyCodes {
+                return true
+            }
         }
     }
-    guard keyCode != nil else { return nil }
-    return ParsedAccelerator(
-        modifiers: modifiers,
-        keyCode: keyCode,
-        bareModifierKeyCodes: nil
-    )
+    return false
 }
 
-private func bareModifierSpec(_ value: String) -> BareModifierSpec? {
-    let normalized = value
-        .replacingOccurrences(of: " ", with: "")
-        .replacingOccurrences(of: "_", with: "")
-        .replacingOccurrences(of: "-", with: "")
-        .lowercased()
-    switch normalized {
-    case "fn":
-        return BareModifierSpec(modifiers: .maskSecondaryFn, keyCodes: [63])
-    case "leftoption", "leftalt":
-        return BareModifierSpec(modifiers: .maskAlternate, keyCodes: [58])
-    case "rightoption", "rightalt":
-        return BareModifierSpec(modifiers: .maskAlternate, keyCodes: [61])
-    case "doubleoption", "doublealt", "leftoption+rightoption", "leftalt+rightalt":
-        return BareModifierSpec(modifiers: .maskAlternate, keyCodes: [58, 61])
-    case "leftcommand", "leftcmd", "leftmeta":
-        return BareModifierSpec(modifiers: .maskCommand, keyCodes: [55])
-    case "rightcommand", "rightcmd", "rightmeta":
-        return BareModifierSpec(modifiers: .maskCommand, keyCodes: [54])
-    case "doublecommand", "leftcommand+rightcommand", "leftcmd+rightcmd", "leftmeta+rightmeta":
-        return BareModifierSpec(modifiers: .maskCommand, keyCodes: [54, 55])
-    case "leftcontrol", "leftctrl":
-        return BareModifierSpec(modifiers: .maskControl, keyCodes: [59])
-    case "doubleshift", "leftshift+rightshift":
-        return BareModifierSpec(modifiers: .maskShift, keyCodes: [56, 60])
-    default:
-        return nil
+private func isValidKeyCode(_ value: NSNumber) -> Bool {
+    let integer = value.intValue
+    return integer >= 0 && integer <= 127 && value.doubleValue == Double(integer)
+}
+
+private func parseModifiers(_ values: [String]) -> CGEventFlags? {
+    var modifiers: CGEventFlags = []
+    for value in Set(values) {
+        switch value {
+        case "command": modifiers.insert(.maskCommand)
+        case "control": modifiers.insert(.maskControl)
+        case "function": modifiers.insert(.maskSecondaryFn)
+        case "option": modifiers.insert(.maskAlternate)
+        case "shift": modifiers.insert(.maskShift)
+        default: return nil
+        }
     }
-}
-
-private func keyCodeForName(_ name: String) -> CGKeyCode? {
-    let keys: [String: CGKeyCode] = [
-        "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7,
-        "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14, "r": 15,
-        "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22,
-        "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29,
-        "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "enter": 36,
-        "l": 37, "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43,
-        "/": 44, "n": 45, "m": 46, ".": 47, "tab": 48, "space": 49,
-        "`": 50, "backspace": 51, "escape": 53,
-    ]
-    return keys[name.lowercased()]
+    return modifiers
 }
 
 private func foregroundMatches(pid: pid_t, bundleIdentifier: String) -> Bool {

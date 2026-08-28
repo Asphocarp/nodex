@@ -15,6 +15,8 @@ import { ThemeProvider } from "./lib/use-theme";
 import { invoke, subscribeAppUpdateStatus } from "./lib/api";
 import type { AppUpdateStatus } from "./lib/types";
 import { createMaitaiStore, MaitaiProvider, preloadEagerPersistedAtoms } from "./lib/maitai";
+import { KeyboardLayoutProvider } from "./lib/keyboard-layout";
+import { InAppDictationRouter } from "./features/dictation/in-app-dictation-router";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
@@ -90,21 +92,25 @@ export function AppProviders({ children }: AppProvidersProps) {
         <ThemeProvider>
           <ReducedMotionProvider>
             <AppUpdateStatusProvider>
-              <BrowserSidebarRuntimeSynchronizer />
-              <BrowserSidebarThemeSynchronizer />
-              <SansFontSizeProvider>
-                <CodeFontSizeProvider>
-                  <FileLinkOpenerProvider>
-                    <CodexServiceTierSettingsProvider>
-                      <CodexThreadSettingsProvider>
-                        <NodexHoverCardProvider>
-                          <NodexTooltipProvider>{children}</NodexTooltipProvider>
-                        </NodexHoverCardProvider>
-                      </CodexThreadSettingsProvider>
-                    </CodexServiceTierSettingsProvider>
-                  </FileLinkOpenerProvider>
-                </CodeFontSizeProvider>
-              </SansFontSizeProvider>
+              <KeyboardLayoutProvider>
+                <InAppDictationRouter>
+                  <BrowserSidebarRuntimeSynchronizer />
+                  <BrowserSidebarThemeSynchronizer />
+                  <SansFontSizeProvider>
+                    <CodeFontSizeProvider>
+                      <FileLinkOpenerProvider>
+                        <CodexServiceTierSettingsProvider>
+                          <CodexThreadSettingsProvider>
+                            <NodexHoverCardProvider>
+                              <NodexTooltipProvider>{children}</NodexTooltipProvider>
+                            </NodexHoverCardProvider>
+                          </CodexThreadSettingsProvider>
+                        </CodexServiceTierSettingsProvider>
+                      </FileLinkOpenerProvider>
+                    </CodeFontSizeProvider>
+                  </SansFontSizeProvider>
+                </InAppDictationRouter>
+              </KeyboardLayoutProvider>
             </AppUpdateStatusProvider>
           </ReducedMotionProvider>
         </ThemeProvider>

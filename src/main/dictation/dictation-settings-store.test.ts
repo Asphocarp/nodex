@@ -23,6 +23,7 @@ afterEach(async () => {
 describe("DictationSettingsStore", () => {
   test("persists strict typed patches and rejects unknown settings", async () => {
     const { store } = await createStore();
+    expect(await store.readKeepGlobalBarVisiblePreference()).toBeNull();
     expect(await store.read()).toMatchObject({
       microphoneInputDeviceId: null,
       globalShortcutNudgeDismissed: false,
@@ -32,6 +33,7 @@ describe("DictationSettingsStore", () => {
     await expect(store.update({ microphoneInputDeviceId: "mic-1" })).resolves.toMatchObject({
       microphoneInputDeviceId: "mic-1",
     });
+    expect(await store.readKeepGlobalBarVisiblePreference()).toBe(false);
     expect(() => store.update({ unknown: true })).toThrow("Unknown dictation setting");
     expect((await store.read()).microphoneInputDeviceId).toBe("mic-1");
   });

@@ -616,6 +616,7 @@ const promptClipboardPlugin = new Plugin({
 });
 
 export interface ComposerPromptEditorHandle {
+  getElement: () => HTMLElement | null;
   focus: () => void;
   focusAtEnd: () => void;
   setText: (text: string) => string;
@@ -1123,6 +1124,7 @@ export const ComposerPromptEditor = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
+      getElement: () => viewRef.current?.dom ?? null,
       focus: () => {
         viewRef.current?.focus();
       },

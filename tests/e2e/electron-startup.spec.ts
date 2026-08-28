@@ -16,6 +16,8 @@ function readMacApplicationType(processId: number): string | null {
 async function expectCanonicalStartup(harness: ElectronScenarioHarness): Promise<void> {
   try {
     const page = await harness.launch({ phase: "first-window" });
+    const rendererErrors: string[] = [];
+    page.on("pageerror", (error) => rendererErrors.push(error.message));
     await page.locator(".nodex-startup-logo-base").waitFor({ state: "visible" });
     const firstIdentity = await harness.application.evaluate(({ BrowserWindow }) => {
       const windows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed());
@@ -58,6 +60,7 @@ async function expectCanonicalStartup(harness: ElectronScenarioHarness): Promise
       webContentsId: firstIdentity.webContentsId,
       windowCount: 1,
     });
+    expect(rendererErrors).toEqual([]);
     const processId = harness.application.process().pid;
     if (processId !== undefined && process.platform === "darwin") {
       expect(readMacApplicationType(processId)).toBe("Foreground");

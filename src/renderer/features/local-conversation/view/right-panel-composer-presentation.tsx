@@ -11,11 +11,13 @@ export const RIGHT_PANEL_COMPOSER_ACCESSORY_FROSTED_SURFACE_CLASS =
 interface RightPanelComposerPresentationContextValue {
   floating: boolean;
   presentation: RightPanelComposerPresentation;
+  visible: boolean;
 }
 
 const DEFAULT_PRESENTATION: RightPanelComposerPresentationContextValue = {
   floating: false,
   presentation: "default",
+  visible: true,
 };
 
 const RightPanelComposerPresentationContext =
@@ -24,11 +26,13 @@ const RightPanelComposerPresentationContext =
 export function RightPanelComposerPresentationProvider({
   children,
   presentation,
+  visible,
 }: {
   children: ReactNode;
   presentation: RightPanelComposerPresentation;
+  visible: boolean;
 }) {
-  const value = useMemo(() => ({ floating: true, presentation }), [presentation]);
+  const value = useMemo(() => ({ floating: true, presentation, visible }), [presentation, visible]);
   return (
     <RightPanelComposerPresentationContext.Provider value={value}>
       {children}

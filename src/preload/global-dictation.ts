@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  GlobalDictationContextMenuAction,
   GlobalDictationRendererCommand,
   GlobalDictationRendererEvent,
 } from "../shared/global-dictation";
@@ -70,4 +71,8 @@ contextBridge.exposeInMainWorld("globalDictation", {
   },
   sendEvent: (event: GlobalDictationRendererEvent) =>
     ipcRenderer.invoke("global-dictation:event", event) as Promise<boolean>,
+  showContextMenu: () =>
+    ipcRenderer.invoke(
+      "global-dictation:context-menu",
+    ) as Promise<GlobalDictationContextMenuAction>,
 });

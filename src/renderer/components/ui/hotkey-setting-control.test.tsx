@@ -57,6 +57,27 @@ describe("HotkeySettingControl", () => {
     expect(onCapture).toHaveBeenCalledWith("Ctrl+Y");
   });
 
+  test("uses the physical layout key when Option changes KeyboardEvent.key", () => {
+    const onCapture = vi.fn();
+    const input = renderCapture(onCapture);
+
+    fireEvent.keyDown(input, {
+      altKey: true,
+      code: "AltLeft",
+      key: "Alt",
+      location: 1,
+    });
+    expect(onCapture).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, {
+      altKey: true,
+      code: "KeyY",
+      key: "¥",
+      location: 0,
+    });
+
+    expect(onCapture).toHaveBeenCalledWith("Alt+Y");
+  });
+
   test("ignores non-Fn values from the native Fn-only capture boundary", async () => {
     const captureFnHotkey = vi.fn().mockResolvedValue("Ctrl");
     const onCapture = vi.fn();

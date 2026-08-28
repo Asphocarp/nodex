@@ -4,8 +4,10 @@ import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { writeFile } from "node:fs/promises";
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, ipcMain, Menu, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
+import { createKeyboardLayoutSnapshot } from "../../../shared/command-keybindings";
+import type { GlobalDictationContextMenuAction } from "../../../shared/global-dictation";
 import {
   DictationRecordingIdSchema,
   DictationRecordingMimeTypeSchema,
@@ -60,7 +62,22 @@ const DictationError = z
   .strict();
 const GlobalRendererEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }).strict(),
-  z.object({ type: z.literal("accepted"), sessionId: SessionId }).strict(),
+  z
+    .object({
+      type: z.literal("accepted"),
+      sessionId: SessionId,
+      requestId: SessionId,
+      targetId: z.string().min(1).max(160),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("declined"),
+      sessionId: SessionId,
+      requestId: SessionId,
+      reason: z.enum(["busy", "deadline-expired", "focus-not-owned", "hidden", "unavailable"]),
+    })
+    .strict(),
   z
     .object({
       type: z.literal("state"),
@@ -79,6 +96,7 @@ const GlobalRendererEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("failed"), sessionId: SessionId, error: DictationError }).strict(),
   z.object({ type: z.literal("retry-paste"), sessionId: SessionId }).strict(),
   z.object({ type: z.literal("dismiss"), sessionId: SessionId }).strict(),
+  z.object({ type: z.literal("close"), sessionId: SessionId.nullable() }).strict(),
   z.object({ type: z.literal("interactive"), enabled: z.boolean() }).strict(),
 ]);
 const MicrophoneLease = z
@@ -109,6 +127,12 @@ const TranscriptCleanup = z
     requestId: SessionId,
     transcript: z.string().max(1_000_000),
     surroundingText: z.string().max(100_000).nullable(),
+  })
+  .strict();
+const KeyboardLayout = z
+  .object({
+    generation: z.number().int().nonnegative().safe(),
+    entries: z.record(z.string(), z.string().max(32)),
   })
   .strict();
 
@@ -410,6 +434,53 @@ export const live = (
           Effect.flatMap((globalEvent) =>
             dictation.handleRendererEvent(event.sender.id, globalEvent),
           ),
+        ),
+      );
+      yield* ipc.handle("global-dictation:context-menu", (event) =>
+        trusted(event, "Global dictation context menu").pipe(
+          Effect.andThen(
+            validate("authorize-global-dictation-context-menu", () => {
+              if (!dictation.ownsGlobalRenderer(event.sender.id)) {
+                throw new Error("Context menu sender does not own the global dictation window");
+              }
+            }),
+          ),
+          Effect.andThen(
+            Effect.tryPromise({
+              try: () =>
+                new Promise<GlobalDictationContextMenuAction>((resolve) => {
+                  const window = BrowserWindow.fromWebContents(event.sender);
+                  if (!window || window.isDestroyed()) {
+                    resolve(null);
+                    return;
+                  }
+                  let selected: GlobalDictationContextMenuAction = null;
+                  const menu = Menu.buildFromTemplate([
+                    {
+                      id: "close-window",
+                      label: "Close window",
+                      click: () => {
+                        selected = "close-window";
+                      },
+                    },
+                  ]);
+                  menu.popup({ window, callback: () => resolve(selected) });
+                }),
+              catch: (cause) =>
+                new DictationIpcError({ operation: "show-global-dictation-context-menu", cause }),
+            }),
+          ),
+        ),
+      );
+      yield* ipc.handle("global-dictation:keyboard-layout:update", (event, input: unknown) =>
+        trusted(event, "Global dictation keyboard layout").pipe(
+          Effect.andThen(
+            validate("parse-global-dictation-keyboard-layout", () => {
+              const parsed = KeyboardLayout.parse(input);
+              return createKeyboardLayoutSnapshot(parsed.generation, parsed.entries);
+            }),
+          ),
+          Effect.flatMap(dictation.updateKeyboardLayout),
         ),
       );
       yield* ipc.handle("codex:dictation:transcribe", (event, input: unknown) =>

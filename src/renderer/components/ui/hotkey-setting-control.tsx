@@ -13,6 +13,7 @@ import {
 } from "../../../shared/command-keybindings";
 import { cn } from "@/lib/utils";
 import { ShortcutKeycaps } from "./shortcut-keycaps";
+import { useKeyboardLayoutSnapshot } from "@/lib/keyboard-layout";
 
 export type HotkeyCaptureMode = "set" | "replace" | "append";
 
@@ -154,6 +155,7 @@ export function HotkeySettingControl({
   platform,
   valueLabelId,
 }: HotkeySettingControlProps) {
+  const keyboardLayout = useKeyboardLayoutSnapshot();
   const nativeCaptureGenerationRef = useRef(0);
   const pressedBareModifiersRef = useRef(new Set<string>());
   const pendingSequenceRef = useRef<string | null>(null);
@@ -248,7 +250,9 @@ export function HotkeySettingControl({
     }
 
     pressedBareModifiersRef.current.clear();
-    const acceleratorFromEvent = keyboardEventToAccelerator(event.nativeEvent, platform);
+    const acceleratorFromEvent = keyboardEventToAccelerator(event.nativeEvent, platform, {
+      keyboardLayout,
+    });
     if (acceleratorFromEvent) captureChord(acceleratorFromEvent);
   };
 

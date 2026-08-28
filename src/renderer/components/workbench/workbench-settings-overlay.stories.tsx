@@ -240,11 +240,11 @@ function ensureStorybookElectronBridge({
             commandId,
             update,
           );
-          return createCommandKeymapState(commandKeybindingOverrides);
+          return { type: "applied", state: createCommandKeymapState(commandKeybindingOverrides) };
         }
         case "reset-codex-command-keybindings":
           commandKeybindingOverrides = {};
-          return createCommandKeymapState(commandKeybindingOverrides);
+          return { type: "applied", state: createCommandKeymapState(commandKeybindingOverrides) };
         case "global-dictation-capture-fn-hotkey":
           return null;
         case "codex:dictation:state:read":

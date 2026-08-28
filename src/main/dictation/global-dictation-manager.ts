@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { BrowserWindow } from "electron";
-import type { CommandKeymapState } from "../../shared/command-keybindings";
-import { getPrimaryCommandAccelerator } from "../../shared/command-keybindings";
+import {
+  compileMacNativeHotkey,
+  DEFAULT_KEYBOARD_LAYOUT_SNAPSHOT,
+  getPrimaryCommandAccelerator,
+  type CommandKeybindingRejection,
+  type CommandKeymapState,
+  type KeyboardLayoutSnapshot,
+  type MacNativeHotkeySpec,
+} from "../../shared/command-keybindings";
 import type {
   DictationError,
   DictationSettings,
@@ -10,6 +17,7 @@ import type {
 import {
   GLOBAL_DICTATION_COMMAND_CHANNEL,
   type GlobalDictationManagerSnapshot,
+  type GlobalDictationRendererCommand,
   type GlobalDictationRendererEvent,
   type GlobalDictationTarget,
 } from "../../shared/global-dictation";
@@ -17,9 +25,14 @@ import type {
   MacDictationHelperEvent,
   MacDictationNativeHelperClient,
 } from "./mac-dictation-native-helper-client";
+import { MacDictationHelperRequestError } from "./mac-dictation-native-helper-client";
 import type { ClipboardSafePasteService } from "./clipboard-safe-paste-service";
 import { ClipboardSafePasteError } from "./clipboard-safe-paste-service";
 import type { GlobalDictationWindowController } from "./global-dictation-window-controller";
+import {
+  acquireGlobalDictationOwnership,
+  type GlobalDictationOwnershipLease,
+} from "./global-dictation-ownership-lock";
 
 const IN_APP_ACCEPT_TIMEOUT_MS = 150;
 const GLOBAL_BINDINGS = [
@@ -29,6 +42,7 @@ const GLOBAL_BINDINGS = [
 
 interface ActiveGlobalSession {
   readonly sessionId: string;
+  readonly requestId: string;
   readonly target: GlobalDictationTarget;
   readonly gesture: "hold" | "toggle";
   owner: "pending-in-app" | "in-app" | "overlay";
@@ -38,51 +52,75 @@ interface ActiveGlobalSession {
   stopRequested: boolean;
 }
 
+type RuntimeHealth = "starting" | "ready" | "degraded" | "stopped";
+
 type GlobalDictationHelperPort = Pick<
   MacDictationNativeHelperClient,
   | "captureFn"
-  | "dispose"
   | "queryBuiltInMicrophoneName"
   | "capabilities"
   | "requestAccessibility"
   | "requestInputMonitoring"
-  | "register"
+  | "replaceBindings"
   | "subscribe"
-  | "unregister"
 >;
 
 type GlobalDictationWindowPort = Pick<
   GlobalDictationWindowController,
-  | "dispose"
   | "ensureWindow"
+  | "close"
   | "hide"
+  | "markRendererReady"
   | "ownsWebContents"
+  | "prewarm"
   | "send"
   | "setInteractive"
-  | "show"
+  | "showAndStart"
+  | "showIdle"
   | "subscribeTerminal"
 >;
 
-/** Main-owned lease for hotkey routing, overlay lifecycle, and exact-target paste. */
+const helperRejection = (error: unknown): CommandKeybindingRejection | null => {
+  if (!(error instanceof MacDictationHelperRequestError)) return null;
+  if (error.code === "input-monitoring-denied") {
+    return {
+      kind: "permission-required",
+      message: "Input Monitoring permission is required for global shortcuts.",
+    };
+  }
+  if (error.code === "hotkey-conflict") {
+    return { kind: "conflict", message: "This shortcut is already in use." };
+  }
+  if (error.code === "invalid-hotkey") {
+    return { kind: "unsupported-key", message: "This shortcut key is not supported." };
+  }
+  return null;
+};
+
+/** Owns global-dictation policy; helper/window lifetimes belong to the surrounding Effect Scope. */
 export class GlobalDictationManager {
   readonly #helper: GlobalDictationHelperPort;
   readonly #windowController: GlobalDictationWindowPort;
   readonly #pasteService: Pick<ClipboardSafePasteService, "paste">;
-  readonly #readSettings: () => Promise<DictationSettings>;
+  readonly #readKeepVisiblePreference: () => Promise<boolean | null>;
+  readonly #writeKeepVisiblePreference: (value: boolean) => Promise<void>;
+  readonly #acquireOwnership: (onLost: () => void) => GlobalDictationOwnershipLease | null;
   readonly #getFocusedAppWindow: () => BrowserWindow | null;
   readonly #getAppWindowByWebContentsId: (webContentsId: number) => BrowserWindow | null;
+  readonly #onRecoveryNeeded: () => void;
   readonly #platform: NodeJS.Platform;
   readonly #listeners = new Set<() => void>();
-  readonly #registered = new Map<
-    string,
-    { readonly mode: "hold" | "toggle"; readonly accelerator: string }
-  >();
+  readonly #appliedBindings = new Map<string, MacNativeHotkeySpec>();
   #snapshot: GlobalDictationManagerSnapshot = { kind: "idle" };
   #active: ActiveGlobalSession | null = null;
-  #overlayReady = false;
-  #helperAvailable: boolean;
+  #keepVisible = false;
+  #health: RuntimeHealth;
   #enabled = false;
   #desiredCommandKeymap: CommandKeymapState | null = null;
+  #keyboardLayout = DEFAULT_KEYBOARD_LAYOUT_SNAPSHOT;
+  #configurationGeneration = 0;
+  #configurationTail: Promise<void> = Promise.resolve();
+  #ownership: GlobalDictationOwnershipLease | null = null;
   #disposed = false;
   readonly #unsubscribeHelper: () => void;
   readonly #unsubscribeWindowTerminal: () => void;
@@ -92,23 +130,36 @@ export class GlobalDictationManager {
     readonly windowController: GlobalDictationWindowPort;
     readonly pasteService: Pick<ClipboardSafePasteService, "paste">;
     readonly readSettings: () => Promise<DictationSettings>;
+    readonly readKeepVisiblePreference?: () => Promise<boolean | null>;
+    readonly writeKeepVisiblePreference?: (value: boolean) => Promise<void>;
+    readonly acquireOwnership?: (onLost: () => void) => GlobalDictationOwnershipLease | null;
     readonly getFocusedAppWindow: () => BrowserWindow | null;
     readonly getAppWindowByWebContentsId: (webContentsId: number) => BrowserWindow | null;
+    readonly onRecoveryNeeded?: () => void;
     readonly platform?: NodeJS.Platform;
   }) {
     this.#helper = options.helper;
     this.#windowController = options.windowController;
     this.#pasteService = options.pasteService;
-    this.#readSettings = options.readSettings;
+    this.#readKeepVisiblePreference =
+      options.readKeepVisiblePreference ??
+      (async () => (await options.readSettings()).keepGlobalBarVisible);
+    this.#writeKeepVisiblePreference =
+      options.writeKeepVisiblePreference ?? (async () => undefined);
+    this.#acquireOwnership =
+      options.acquireOwnership ?? ((onLost) => acquireGlobalDictationOwnership({ onLost }));
     this.#getFocusedAppWindow = options.getFocusedAppWindow;
     this.#getAppWindowByWebContentsId = options.getAppWindowByWebContentsId;
+    this.#onRecoveryNeeded = options.onRecoveryNeeded ?? (() => undefined);
     this.#platform = options.platform ?? process.platform;
-    this.#helperAvailable = this.#platform === "darwin";
+    this.#health = this.#platform === "darwin" ? "starting" : "stopped";
     this.#unsubscribeHelper = this.#helper.subscribe((event) => this.#onHelperEvent(event));
-    this.#unsubscribeWindowTerminal = this.#windowController.subscribeTerminal((webContentsId) => {
-      this.#overlayReady = false;
-      this.handleWebContentsGone(webContentsId);
-    });
+    this.#unsubscribeWindowTerminal = this.#windowController.subscribeTerminal(
+      (webContentsId, reason) => {
+        this.handleWebContentsGone(webContentsId);
+        if (reason === "unexpected") this.#syncIdlePresentation();
+      },
+    );
   }
 
   readonly subscribe = (listener: () => void): (() => void) => {
@@ -118,55 +169,103 @@ export class GlobalDictationManager {
 
   readonly getSnapshot = (): GlobalDictationManagerSnapshot => this.#snapshot;
 
-  readonly isAvailable = (): boolean => this.#platform === "darwin" && this.#helperAvailable;
+  readonly isAvailable = (): boolean => this.#platform === "darwin" && this.#health === "ready";
 
-  async initialize(state: CommandKeymapState): Promise<void> {
-    if (this.#platform !== "darwin" || this.#disposed) return;
-    await this.syncCommandKeymap(state);
-    if (this.#registered.size > 0) this.#windowController.ensureWindow();
+  readonly ownsRenderer = (webContentsId: number): boolean =>
+    this.#windowController.ownsWebContents(webContentsId);
+
+  async initialize(state: CommandKeymapState): Promise<CommandKeybindingRejection | null> {
+    return await this.#withConfigurationLease(async () => {
+      if (this.#platform !== "darwin" || this.#disposed) return null;
+      this.#desiredCommandKeymap = state;
+      this.#keepVisible =
+        (await this.#readKeepVisiblePreference()) ?? this.#hasConfiguredHotkey(state);
+      const rejection = await this.#applyDesiredBindings();
+      this.#syncIdlePresentation();
+      return rejection;
+    });
   }
 
-  async syncCommandKeymap(state: CommandKeymapState): Promise<void> {
-    if (this.#platform !== "darwin" || this.#disposed) return;
-    this.#desiredCommandKeymap = state;
-    const previous = new Map(this.#registered);
-    const next = new Map<
-      string,
-      { readonly mode: "hold" | "toggle"; readonly accelerator: string }
-    >();
-    for (const binding of GLOBAL_BINDINGS) {
-      const accelerator = getPrimaryCommandAccelerator(state, binding.commandId);
-      if (accelerator) next.set(binding.bindingId, { mode: binding.mode, accelerator });
-    }
-    if (!this.#enabled) {
-      for (const bindingId of previous.keys()) await this.#helper.unregister(bindingId);
-      this.#registered.clear();
-      return;
-    }
-    try {
-      for (const [bindingId, value] of next) {
-        const current = previous.get(bindingId);
-        if (current?.accelerator === value.accelerator && current.mode === value.mode) continue;
-        await this.#helper.register({ bindingId, ...value });
+  async syncCommandKeymap(state: CommandKeymapState): Promise<CommandKeybindingRejection | null> {
+    return await this.#withConfigurationLease(async () => {
+      if (this.#platform !== "darwin" || this.#disposed) return null;
+      const compiled = this.#compileBindings(state);
+      if (compiled.type === "rejected") return compiled.reason;
+      const hadConfiguredHotkey = this.#hasConfiguredHotkey(this.#desiredCommandKeymap);
+      const hasConfiguredHotkey = compiled.bindings.length > 0;
+      if (!this.#enabled) {
+        this.#desiredCommandKeymap = state;
+        await this.#syncKeepVisibleForHotkeyTransition(hadConfiguredHotkey, hasConfiguredHotkey);
+        return null;
       }
-      for (const bindingId of previous.keys()) {
-        if (next.has(bindingId)) continue;
-        await this.#helper.unregister(bindingId);
+      if (hasConfiguredHotkey && !this.#ensureOwnership()) {
+        return this.#ownershipConflict();
       }
-      this.#registered.clear();
-      for (const [bindingId, value] of next) this.#registered.set(bindingId, value);
-      this.#setHelperAvailable(true);
-      if (next.size > 0) this.#windowController.ensureWindow();
-    } catch (error) {
-      this.#setHelperAvailable(false);
-      await this.#restoreRegistrations(previous, next);
-      throw error;
-    }
+      const generation = this.#configurationGeneration + 1;
+      try {
+        await this.#helper.replaceBindings({ generation, bindings: compiled.bindings });
+      } catch (error) {
+        const rejection = helperRejection(error);
+        if (rejection) {
+          if (this.#appliedBindings.size === 0) this.#releaseOwnership();
+          return rejection;
+        }
+        this.#markDegraded();
+        return {
+          kind: "runtime-degraded",
+          message: "Global dictation is recovering. Try the shortcut again in a moment.",
+        };
+      }
+      this.#desiredCommandKeymap = state;
+      this.#adoptBindings(compiled.bindings, generation);
+      await this.#syncKeepVisibleForHotkeyTransition(hadConfiguredHotkey, hasConfiguredHotkey);
+      return null;
+    });
+  }
+
+  /** Makes a durable rollback authoritative even when the helper cannot apply it immediately. */
+  async restoreCommandKeymap(state: CommandKeymapState): Promise<void> {
+    await this.#withConfigurationLease(async () => {
+      if (this.#platform !== "darwin" || this.#disposed) return;
+      const hadConfiguredHotkey = this.#hasConfiguredHotkey(this.#desiredCommandKeymap);
+      const hasConfiguredHotkey = this.#hasConfiguredHotkey(state);
+      this.#desiredCommandKeymap = state;
+      if (this.#enabled) {
+        const rejection = await this.#applyDesiredBindings();
+        if (rejection) throw new MacDictationHelperRequestError(rejection.kind, rejection.message);
+      }
+      await this.#syncKeepVisibleForHotkeyTransition(hadConfiguredHotkey, hasConfiguredHotkey);
+    });
+  }
+
+  async updateKeyboardLayout(snapshot: KeyboardLayoutSnapshot): Promise<boolean> {
+    return await this.#withConfigurationLease(async () => {
+      if (this.#disposed || this.#hasKeyboardLayout(snapshot)) return false;
+      this.#keyboardLayout = snapshot;
+      if (!this.#enabled || !this.#desiredCommandKeymap) return true;
+      const rejection = await this.#applyDesiredBindings();
+      return rejection === null;
+    });
+  }
+
+  /** Recreates helper transport state from durable desired configuration after a crash. */
+  async recover(): Promise<void> {
+    await this.#withConfigurationLease(async () => {
+      if (this.#disposed || this.#platform !== "darwin" || !this.#enabled) return;
+      this.#health = "starting";
+      this.#publish(this.#snapshot);
+      const rejection = await this.#applyDesiredBindings(false);
+      if (rejection) {
+        this.#health = "degraded";
+        this.#publish(this.#snapshot);
+      }
+    });
   }
 
   captureFnHotkey(): Promise<"Fn"> {
-    if (this.#platform !== "darwin")
+    if (this.#platform !== "darwin") {
       return Promise.reject(new Error("Global dictation is macOS-only"));
+    }
     return this.#helper.captureFn();
   }
 
@@ -185,10 +284,10 @@ export class GlobalDictationManager {
 
   async requestInputMonitoring(): Promise<GlobalDictationPermissionSnapshot> {
     if (this.#platform !== "darwin") return await this.readPermissions();
-    const granted = await this.#helper.requestInputMonitoring();
-    if (granted && this.#desiredCommandKeymap) {
-      await this.syncCommandKeymap(this.#desiredCommandKeymap);
-    }
+    await this.#withConfigurationLease(async () => {
+      const granted = await this.#helper.requestInputMonitoring();
+      if (granted && this.#desiredCommandKeymap) await this.#applyDesiredBindings();
+    });
     return await this.readPermissions();
   }
 
@@ -201,11 +300,9 @@ export class GlobalDictationManager {
   handleRendererEvent(senderWebContentsId: number, event: GlobalDictationRendererEvent): boolean {
     if (this.#disposed) return false;
     if (event.type === "ready") {
-      if (!this.#windowController.ownsWebContents(senderWebContentsId)) return false;
-      this.#overlayReady = true;
-      const active = this.#active;
-      if (active?.owner === "overlay") this.#startOverlay(active);
-      return true;
+      const accepted = this.#windowController.markRendererReady(senderWebContentsId);
+      if (accepted && !this.#active) this.#syncIdlePresentation();
+      return accepted;
     }
     if (event.type === "interactive") {
       if (this.#windowController.ownsWebContents(senderWebContentsId)) {
@@ -213,9 +310,34 @@ export class GlobalDictationManager {
       }
       return this.#windowController.ownsWebContents(senderWebContentsId);
     }
+    if (event.type === "close") {
+      if (!this.#windowController.ownsWebContents(senderWebContentsId)) return false;
+      const active = this.#active;
+      if (event.sessionId !== (active?.sessionId ?? null)) return false;
+      if (active) {
+        this.#sendToOwner(active, { type: "cancel", sessionId: active.sessionId });
+        if (active.acceptTimer) clearTimeout(active.acceptTimer);
+        this.#active = null;
+        this.#publish({ kind: "idle" });
+      }
+      this.#windowController.close();
+      return true;
+    }
     const active = this.#active;
     if (!active || ("sessionId" in event && event.sessionId !== active.sessionId)) return false;
+    if (event.type === "declined") {
+      if (
+        active.owner !== "pending-in-app" ||
+        senderWebContentsId !== active.senderWebContentsId ||
+        event.requestId !== active.requestId
+      ) {
+        return false;
+      }
+      this.#routeToOverlay(active);
+      return true;
+    }
     if (event.type === "accepted") {
+      if (event.requestId !== active.requestId) return false;
       if (active.owner === "pending-in-app" && senderWebContentsId === active.senderWebContentsId) {
         if (active.acceptTimer) clearTimeout(active.acceptTimer);
         active.acceptTimer = null;
@@ -243,7 +365,7 @@ export class GlobalDictationManager {
     }
     if (event.type === "completed") {
       if (active.owner === "in-app") {
-        this.#finishActive(false);
+        this.#finishActive();
         return true;
       }
       active.transcript = event.transcript;
@@ -259,81 +381,237 @@ export class GlobalDictationManager {
       return true;
     }
     if (event.type === "cancelled" || event.type === "dismiss") {
-      this.#finishActive(true);
+      this.#finishActive();
       return true;
     }
     return false;
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
-    if (this.#disposed || this.#enabled === enabled) return;
-    this.#enabled = enabled;
-    if (!enabled) {
-      if (this.#active) {
-        this.#sendToOwner(this.#active, { type: "cancel", sessionId: this.#active.sessionId });
-        this.#finishActive(true);
+    await this.#withConfigurationLease(async () => {
+      if (this.#disposed || this.#enabled === enabled) return;
+      this.#enabled = enabled;
+      if (!enabled) {
+        if (this.#active) {
+          this.#sendToOwner(this.#active, { type: "cancel", sessionId: this.#active.sessionId });
+          this.#finishActive();
+        }
+        const generation = this.#configurationGeneration + 1;
+        await this.#helper.replaceBindings({ generation, bindings: [] });
+        this.#adoptBindings([], generation);
+        this.#windowController.close();
+        return;
       }
-      await Promise.all(
-        [...this.#registered.keys()].map((bindingId) =>
-          this.#helper.unregister(bindingId).catch(() => undefined),
-        ),
-      );
-      this.#registered.clear();
-      return;
-    }
-    if (this.#desiredCommandKeymap) {
-      await this.syncCommandKeymap(this.#desiredCommandKeymap);
-    }
+      if (!this.#desiredCommandKeymap) return;
+      const rejection = await this.#applyDesiredBindings();
+      if (rejection) throw new MacDictationHelperRequestError(rejection.kind, rejection.message);
+    });
+  }
+
+  syncSettings(settings: DictationSettings): void {
+    if (this.#disposed || this.#platform !== "darwin") return;
+    this.#keepVisible = settings.keepGlobalBarVisible;
+    this.#syncIdlePresentation();
   }
 
   handleWebContentsGone(webContentsId: number): void {
-    if (this.#windowController.ownsWebContents(webContentsId)) this.#overlayReady = false;
     const active = this.#active;
     if (active?.senderWebContentsId !== webContentsId) return;
     if (active.acceptTimer) clearTimeout(active.acceptTimer);
     this.#active = null;
     this.#publish({ kind: "idle" });
-    this.#windowController.hide();
+    this.#syncIdlePresentation();
   }
 
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#health = "stopped";
     this.#unsubscribeHelper();
     this.#unsubscribeWindowTerminal();
     const active = this.#active;
     if (active?.acceptTimer) clearTimeout(active.acceptTimer);
     if (active) this.#sendToOwner(active, { type: "cancel", sessionId: active.sessionId });
     this.#active = null;
-    for (const bindingId of this.#registered.keys()) void this.#helper.unregister(bindingId);
-    this.#registered.clear();
-    this.#windowController.dispose();
-    this.#helper.dispose();
+    this.#appliedBindings.clear();
     this.#publish({ kind: "idle" });
     this.#listeners.clear();
+    this.#releaseOwnership();
+    this.#windowController.close();
+  }
+
+  #compileBindings(
+    state: CommandKeymapState,
+  ):
+    | { readonly type: "compiled"; readonly bindings: readonly MacNativeHotkeySpec[] }
+    | { readonly type: "rejected"; readonly reason: CommandKeybindingRejection } {
+    const bindings: MacNativeHotkeySpec[] = [];
+    for (const binding of GLOBAL_BINDINGS) {
+      const accelerator = getPrimaryCommandAccelerator(state, binding.commandId);
+      if (!accelerator) continue;
+      const compiled = compileMacNativeHotkey({
+        accelerator,
+        bindingId: binding.bindingId,
+        mode: binding.mode,
+        layout: this.#keyboardLayout,
+      });
+      if (compiled.type === "rejected") return compiled;
+      bindings.push(compiled.spec);
+    }
+    return { type: "compiled", bindings };
+  }
+
+  async #applyDesiredBindings(requestRecovery = true): Promise<CommandKeybindingRejection | null> {
+    const desired = this.#desiredCommandKeymap;
+    if (!desired || !this.#enabled) {
+      this.#health = "ready";
+      this.#publish(this.#snapshot);
+      return null;
+    }
+    const compiled = this.#compileBindings(desired);
+    if (compiled.type === "rejected") return compiled.reason;
+    if (compiled.bindings.length > 0 && !this.#ensureOwnership()) {
+      return this.#ownershipConflict();
+    }
+    const generation = this.#configurationGeneration + 1;
+    try {
+      await this.#helper.replaceBindings({ generation, bindings: compiled.bindings });
+    } catch (error) {
+      const rejection = helperRejection(error);
+      if (rejection) {
+        if (this.#appliedBindings.size === 0) this.#releaseOwnership();
+        return rejection;
+      }
+      this.#markDegraded(requestRecovery);
+      throw error;
+    }
+    this.#adoptBindings(compiled.bindings, generation);
+    return null;
+  }
+
+  #adoptBindings(bindings: readonly MacNativeHotkeySpec[], generation: number): void {
+    if (this.#disposed) return;
+    if (this.#active) {
+      this.#sendToOwner(this.#active, { type: "cancel", sessionId: this.#active.sessionId });
+      this.#finishActive();
+    }
+    this.#configurationGeneration = generation;
+    this.#appliedBindings.clear();
+    for (const binding of bindings) this.#appliedBindings.set(binding.bindingId, binding);
+    if (bindings.length === 0) this.#releaseOwnership();
+    this.#health = "ready";
+    this.#publish(this.#snapshot);
+    this.#syncIdlePresentation();
+  }
+
+  #markDegraded(requestRecovery = true): void {
+    if (this.#disposed) return;
+    this.#health = "degraded";
+    this.#appliedBindings.clear();
+    if (this.#active) {
+      this.#sendToOwner(this.#active, { type: "cancel", sessionId: this.#active.sessionId });
+      this.#finishActive();
+    }
+    this.#publish(this.#snapshot);
+    if (requestRecovery) this.#onRecoveryNeeded();
+  }
+
+  #ensureOwnership(): boolean {
+    if (this.#ownership?.isOwner()) return true;
+    this.#ownership?.dispose();
+    this.#ownership = this.#acquireOwnership(() => {
+      this.#ownership = null;
+      void this.#withConfigurationLease(async () => {
+        if (this.#disposed) return;
+        const active = this.#active;
+        if (active?.acceptTimer) clearTimeout(active.acceptTimer);
+        if (active) this.#sendToOwner(active, { type: "cancel", sessionId: active.sessionId });
+        this.#active = null;
+        const generation = this.#configurationGeneration + 1;
+        try {
+          await this.#helper.replaceBindings({ generation, bindings: [] });
+        } catch {
+          // Ownership is already gone; local teardown must still converge immediately.
+        }
+        this.#configurationGeneration = generation;
+        this.#appliedBindings.clear();
+        this.#health = "degraded";
+        this.#publish({ kind: "idle" });
+        this.#windowController.close();
+      });
+    });
+    return this.#ownership !== null;
+  }
+
+  #releaseOwnership(): void {
+    this.#ownership?.dispose();
+    this.#ownership = null;
+  }
+
+  #ownershipConflict(): CommandKeybindingRejection {
+    this.#markDegraded(false);
+    this.#windowController.close();
+    return {
+      kind: "conflict",
+      message: "Global dictation is already active in another Nodex instance.",
+    };
+  }
+
+  #hasConfiguredHotkey(state: CommandKeymapState | null): boolean {
+    if (!state) return false;
+    return GLOBAL_BINDINGS.some(
+      ({ commandId }) => getPrimaryCommandAccelerator(state, commandId) !== null,
+    );
+  }
+
+  async #syncKeepVisibleForHotkeyTransition(
+    hadConfiguredHotkey: boolean,
+    hasConfiguredHotkey: boolean,
+  ): Promise<void> {
+    const nextKeepVisible =
+      !hadConfiguredHotkey && hasConfiguredHotkey
+        ? true
+        : hasConfiguredHotkey
+          ? this.#keepVisible
+          : false;
+    if (nextKeepVisible === this.#keepVisible) return;
+    this.#keepVisible = nextKeepVisible;
+    this.#syncIdlePresentation();
+    await this.#writeKeepVisiblePreference(nextKeepVisible);
+  }
+
+  #hasKeyboardLayout(snapshot: KeyboardLayoutSnapshot): boolean {
+    const currentEntries = this.#keyboardLayout.entries;
+    const nextEntries = snapshot.entries;
+    const currentKeys = Object.keys(currentEntries);
+    const nextKeys = Object.keys(nextEntries);
+    return (
+      currentKeys.length === nextKeys.length &&
+      currentKeys.every((key) =>
+        Object.prototype.hasOwnProperty.call(nextEntries, key)
+          ? nextEntries[key as keyof typeof nextEntries] ===
+            currentEntries[key as keyof typeof currentEntries]
+          : false,
+      )
+    );
   }
 
   #onHelperEvent(event: MacDictationHelperEvent): void {
     if (this.#disposed) return;
     if (event.type === "crashed") {
-      this.#setHelperAvailable(false);
-      if (this.#active) this.#finishActive(true);
-      this.#registered.clear();
-      if (!this.#active) this.#publish(this.#snapshot);
+      this.#markDegraded();
       return;
     }
-    const binding = this.#registered.get(event.bindingId);
-    if (!binding) return;
+    if (event.configurationGeneration !== this.#configurationGeneration) return;
+    const binding = this.#appliedBindings.get(event.bindingId);
+    if (!binding || binding.mode !== event.mode) return;
     if (event.type === "pressed") {
       if (binding.mode === "toggle" && this.#active) {
         this.#stopActive();
         return;
       }
       if (!this.#enabled || this.#active || !event.target) return;
-      this.#begin({
-        target: event.target,
-        gesture: binding.mode,
-      });
+      this.#begin({ target: event.target, gesture: binding.mode });
       return;
     }
     if (binding.mode === "hold") this.#stopActive();
@@ -345,6 +623,7 @@ export class GlobalDictationManager {
   }): void {
     const session: ActiveGlobalSession = {
       sessionId: randomUUID(),
+      requestId: randomUUID(),
       target: input.target,
       gesture: input.gesture,
       owner: "overlay",
@@ -362,6 +641,8 @@ export class GlobalDictationManager {
       focused.webContents.send(GLOBAL_DICTATION_COMMAND_CHANNEL, {
         type: "start",
         sessionId: session.sessionId,
+        requestId: session.requestId,
+        deadlineAtMs: Date.now() + IN_APP_ACCEPT_TIMEOUT_MS,
         gesture: session.gesture,
       });
       session.acceptTimer = setTimeout(() => {
@@ -381,20 +662,32 @@ export class GlobalDictationManager {
     if (session.acceptTimer) clearTimeout(session.acceptTimer);
     session.acceptTimer = null;
     session.owner = "overlay";
-    const window = this.#windowController.ensureWindow();
+    let window: BrowserWindow;
+    try {
+      window = this.#windowController.ensureWindow();
+    } catch {
+      this.#finishActive();
+      return;
+    }
     session.senderWebContentsId = window.webContents.id;
-    this.#windowController.show();
     this.#publish({ kind: "overlay-starting", sessionId: session.sessionId });
-    if (this.#overlayReady) this.#startOverlay(session);
+    void this.#startOverlay(session);
   }
 
-  #startOverlay(session: ActiveGlobalSession): void {
+  async #startOverlay(session: ActiveGlobalSession): Promise<void> {
     if (this.#active !== session || session.owner !== "overlay") return;
-    this.#windowController.send({
+    const shown = await this.#windowController.showAndStart({
       type: "start",
       sessionId: session.sessionId,
+      requestId: session.requestId,
+      deadlineAtMs: Number.MAX_SAFE_INTEGER,
       gesture: session.gesture,
     });
+    if (this.#active !== session || session.owner !== "overlay") return;
+    if (!shown) {
+      this.#finishActive();
+      return;
+    }
     if (session.stopRequested) {
       this.#windowController.send({ type: "stop", sessionId: session.sessionId });
     }
@@ -408,7 +701,7 @@ export class GlobalDictationManager {
       this.#routeToOverlay(active);
       return;
     }
-    if (active.owner !== "overlay" || this.#overlayReady) {
+    if (active.owner !== "overlay" || active.senderWebContentsId !== null) {
       this.#sendToOwner(active, { type: "stop", sessionId: active.sessionId });
     }
   }
@@ -436,7 +729,7 @@ export class GlobalDictationManager {
     this.#publish({ kind: "pasting", sessionId: active.sessionId });
     try {
       await this.#pasteService.paste(active.transcript, active.target);
-      this.#finishActive(false);
+      this.#finishActive();
     } catch (error) {
       if (this.#active !== active) return;
       const dictationError: DictationError =
@@ -456,42 +749,44 @@ export class GlobalDictationManager {
     }
   }
 
-  #finishActive(forceHide: boolean): void {
+  #finishActive(): void {
     const active = this.#active;
     if (!active) return;
     if (active.acceptTimer) clearTimeout(active.acceptTimer);
     this.#active = null;
     this.#publish({ kind: "idle" });
-    if (active.owner === "overlay") {
-      this.#windowController.send({ type: "finish", sessionId: active.sessionId });
-    }
-    if (forceHide) {
-      this.#windowController.hide();
+    if (active.owner !== "overlay") return;
+    if (this.#enabled && this.#keepVisible && this.#appliedBindings.size > 0) {
+      void this.#windowController.showIdle(this.#idleCommand());
       return;
     }
-    void this.#readSettings()
-      .then((settings) => {
-        if (!settings.keepGlobalBarVisible) this.#windowController.hide();
-      })
-      .catch(() => this.#windowController.hide());
+    this.#windowController.send({ type: "finish", sessionId: active.sessionId });
+    this.#windowController.hide();
   }
 
-  async #restoreRegistrations(
-    previous: ReadonlyMap<
-      string,
-      { readonly mode: "hold" | "toggle"; readonly accelerator: string }
-    >,
-    attempted: ReadonlyMap<
-      string,
-      { readonly mode: "hold" | "toggle"; readonly accelerator: string }
-    >,
-  ): Promise<void> {
-    for (const bindingId of attempted.keys()) {
-      if (!previous.has(bindingId)) await this.#helper.unregister(bindingId).catch(() => undefined);
+  #idleCommand(): Extract<GlobalDictationRendererCommand, { type: "idle" }> {
+    const state = this.#desiredCommandKeymap;
+    return {
+      type: "idle",
+      configuredHotkey: state ? getPrimaryCommandAccelerator(state, "globalDictationHold") : null,
+      configuredToggleHotkey: state
+        ? getPrimaryCommandAccelerator(state, "globalDictationToggle")
+        : null,
+    };
+  }
+
+  #syncIdlePresentation(): void {
+    if (this.#disposed || this.#active) return;
+    if (!this.#enabled || this.#appliedBindings.size === 0) {
+      this.#windowController.close();
+      return;
     }
-    for (const [bindingId, value] of previous) {
-      await this.#helper.register({ bindingId, ...value }).catch(() => undefined);
+    if (this.#keepVisible) {
+      void this.#windowController.showIdle(this.#idleCommand());
+      return;
     }
+    this.#windowController.prewarm();
+    this.#windowController.hide();
   }
 
   #publish(snapshot: GlobalDictationManagerSnapshot): void {
@@ -499,9 +794,12 @@ export class GlobalDictationManager {
     for (const listener of this.#listeners) listener();
   }
 
-  #setHelperAvailable(available: boolean): void {
-    if (this.#helperAvailable === available) return;
-    this.#helperAvailable = available;
-    this.#publish(this.#snapshot);
+  #withConfigurationLease<A>(operation: () => Promise<A>): Promise<A> {
+    const result = this.#configurationTail.then(operation, operation);
+    this.#configurationTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 }

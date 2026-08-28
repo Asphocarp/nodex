@@ -6,7 +6,7 @@ import {
 } from "../../../../../shared/command-keybindings";
 import type { DictationError, DictationStopAction } from "../../../../../shared/dictation";
 import type {
-  GlobalDictationRendererCommand,
+  GlobalDictationDeclineReason,
   GlobalDictationRendererEvent,
 } from "../../../../../shared/global-dictation";
 import {
@@ -28,6 +28,7 @@ import {
 import { browserDictationWaveformPort } from "@/features/dictation/dictation-waveform";
 import { useDictationSession } from "@/features/dictation/use-dictation-session";
 import { transcribeDictationBlob } from "@/features/dictation/dictation-buffered-client";
+import { useInAppDictationTarget } from "@/features/dictation/in-app-dictation-router";
 import {
   COMPOSER_DICTATION_WAVEFORM_ADVANCE_INTERVAL_MS,
   drawComposerDictationWaveform,
@@ -50,6 +51,11 @@ export interface ComposerDictationController {
 
 interface UseComposerDictationInput {
   readonly enabled: boolean;
+  readonly globalTarget: {
+    readonly id: string;
+    readonly priority: number;
+    readonly admission: () => GlobalDictationDeclineReason | null;
+  };
   readonly onTranscriptInsert: (text: string) => void;
   readonly onTranscriptSend: (text: string) => void;
   readonly onStartError: (error: DictationError) => void;
@@ -97,6 +103,7 @@ export function useComposerDictation(
   const reportedErrorRef = useRef<string | null>(null);
   const globalSessionIdRef = useRef<string | null>(null);
   const globalCompletionReportedRef = useRef(false);
+  const releaseGlobalRouteRef = useRef<(() => void) | null>(null);
   const lastGlobalStateRef = useRef<string | null>(null);
   const appliedCompletionIdsRef = useRef(new Set<string>());
   const [controller] = useState(
@@ -156,6 +163,8 @@ export function useComposerDictation(
                 transcript,
               }).catch(() => false);
               globalSessionIdRef.current = null;
+              releaseGlobalRouteRef.current?.();
+              releaseGlobalRouteRef.current = null;
               return;
             }
             if (action === "send") {
@@ -176,33 +185,24 @@ export function useComposerDictation(
     controller.cancel();
   }, [controller, input.enabled]);
 
-  useEffect(() => {
-    if (!window.api) return;
-    return window.api.on("global-dictation:command", (value) => {
-      const command = value as GlobalDictationRendererCommand;
-      if (!command || typeof command !== "object" || !("sessionId" in command)) return;
-      if (command.type === "start") {
-        if (!callbacksRef.current.enabled || controller.getSnapshot().kind !== "idle") return;
-        globalSessionIdRef.current = command.sessionId;
-        globalCompletionReportedRef.current = false;
-        lastGlobalStateRef.current = null;
-        void invokeGlobalDictationEvent({ type: "accepted", sessionId: command.sessionId }).then(
-          async (accepted) => {
-            if (!accepted || globalSessionIdRef.current !== command.sessionId) {
-              if (globalSessionIdRef.current === command.sessionId)
-                globalSessionIdRef.current = null;
-              return;
-            }
-            await controller.start({ surface: "global", gesture: command.gesture });
-          },
-        );
-        return;
-      }
-      if (command.sessionId !== globalSessionIdRef.current) return;
-      if (command.type === "stop") controller.stop("insert");
-      else if (command.type === "cancel") controller.cancel();
-    });
-  }, [controller]);
+  useInAppDictationTarget({
+    id: input.globalTarget.id,
+    priority: input.globalTarget.priority,
+    admission: () => {
+      if (!callbacksRef.current.enabled) return "unavailable";
+      if (controller.getSnapshot().kind !== "idle") return "busy";
+      return callbacksRef.current.globalTarget.admission();
+    },
+    start: async ({ sessionId, gesture, release }) => {
+      globalSessionIdRef.current = sessionId;
+      releaseGlobalRouteRef.current = release;
+      globalCompletionReportedRef.current = false;
+      lastGlobalStateRef.current = null;
+      await controller.start({ surface: "global", gesture });
+    },
+    stop: () => controller.stop("insert"),
+    cancel: () => controller.cancel(),
+  });
 
   useEffect(() => {
     if (snapshot.kind !== "recording") return;
@@ -271,6 +271,8 @@ export function useComposerDictation(
     }
     if (snapshot.kind === "idle" && !globalCompletionReportedRef.current) {
       globalSessionIdRef.current = null;
+      releaseGlobalRouteRef.current?.();
+      releaseGlobalRouteRef.current = null;
       void invokeGlobalDictationEvent({ type: "cancelled", sessionId });
     }
   }, [snapshot]);
