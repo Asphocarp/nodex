@@ -57,6 +57,7 @@ export type AgentRuntimeConformanceReport = {
     initialize: "pass";
     invalidMethod: "pass";
     modelHarnessRouting: "pass";
+    multiAgentV2Schema: "pass";
     providerCatalog: "pass";
     schemaFingerprint: "pass";
     threadSearchColdRestart: "pass";
@@ -79,6 +80,12 @@ export type AgentRuntimeConformanceReport = {
     restartedResultCount: number;
   };
 };
+
+const requiredMultiAgentV2SchemaVariants = {
+  CollabAgentTool: ["spawnAgent", "sendMessage", "followupTask", "interruptAgent", "listAgents"],
+  CollabAgentToolCallStatus: ["interrupted"],
+  SubAgentActivityKind: ["completed"],
+} as const;
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -140,7 +147,27 @@ export function fingerprintGeneratedSchemas(rootPath: string): string {
   return hash.digest("hex");
 }
 
-function generateSchemaFingerprint(binaryPath: string): string {
+function assertMultiAgentV2Schema(schemaRoot: string): void {
+  const schemaPath = path.join(schemaRoot, "json", "codex_app_server_protocol.schemas.json");
+  const schema = requireObject(
+    JSON.parse(readFileSync(schemaPath, "utf8")) as unknown,
+    "combined app-server schema",
+  );
+  const definitions = requireObject(schema.definitions, "combined app-server schema definitions");
+  const v2 = requireObject(definitions.v2, "combined app-server schema v2 definitions");
+  for (const [typeName, variants] of Object.entries(requiredMultiAgentV2SchemaVariants)) {
+    const definition = requireObject(v2[typeName], `v2/${typeName}`);
+    const actualVariants = new Set(requireArray(definition.enum, `v2/${typeName}.enum`));
+    for (const variant of variants) {
+      if (actualVariants.has(variant)) continue;
+      throw new Error(
+        `Agent runtime schema v2/${typeName} omits required MultiAgentV2 variant ${variant}`,
+      );
+    }
+  }
+}
+
+function generateSchemaContract(binaryPath: string): string {
   const schemaRoot = mkdtempSync(path.join(os.tmpdir(), "nodex-agent-runtime-schema-"));
   try {
     execFileSync(
@@ -159,6 +186,7 @@ function generateSchemaFingerprint(binaryPath: string): string {
       ],
       { stdio: "pipe" },
     );
+    assertMultiAgentV2Schema(schemaRoot);
     return fingerprintGeneratedSchemas(schemaRoot);
   } finally {
     rmSync(schemaRoot, { recursive: true, force: true });
@@ -238,7 +266,7 @@ async function probeAgentRuntimePromise(
       `Agent runtime version ${versionOutput} does not match release lock ${lock.runtimeVersion}`,
     );
   }
-  const protocolSchemaSha256 = generateSchemaFingerprint(input.binaryPath);
+  const protocolSchemaSha256 = generateSchemaContract(input.binaryPath);
   if (protocolSchemaSha256 !== lock.protocolSchemaSha256) {
     throw new Error(
       `Agent runtime schema fingerprint ${protocolSchemaSha256} does not match release lock ${lock.protocolSchemaSha256}`,
@@ -379,6 +407,7 @@ async function probeAgentRuntimePromise(
       initialize: "pass",
       invalidMethod: "pass",
       modelHarnessRouting: "pass",
+      multiAgentV2Schema: "pass",
       providerCatalog: "pass",
       schemaFingerprint: "pass",
       threadSearchColdRestart: "pass",

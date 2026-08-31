@@ -56,6 +56,7 @@ export interface CodexProbeClient {
 }
 
 export interface CodexProbeSessionLease extends CodexProbeClient {
+  readonly pid: number;
   readonly stop: () => Promise<void>;
 }
 
@@ -87,6 +88,7 @@ class ProbeClientBridge extends EventEmitter implements CodexProbeClient {
   readonly #callbacks: ScopedCallbackRuntime["Service"];
   readonly #requestTimeout: Duration.Input;
   readonly #session: CodexAppServerSession["Service"];
+  readonly pid: number;
 
   constructor(
     session: CodexAppServerSession["Service"],
@@ -97,6 +99,7 @@ class ProbeClientBridge extends EventEmitter implements CodexProbeClient {
     this.#session = session;
     this.#callbacks = callbacks;
     this.#requestTimeout = requestTimeout;
+    this.pid = session.pid;
   }
 
   getInitializeResponse(): V1InitializeResponse {
@@ -212,6 +215,7 @@ export const openCodexProbeSession = (
     );
     let closed = false;
     return Object.assign(bridge, {
+      pid: bridge.pid,
       stop: async (): Promise<void> => {
         if (closed) return;
         closed = true;

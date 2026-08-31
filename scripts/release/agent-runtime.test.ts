@@ -30,6 +30,8 @@ test("Agent runtime publication binds immutable artifacts to the exact source co
   expect(args).toContain("--latest=false");
   expect(args).toContain("--verify-tag");
   expect(args.join(" ")).toContain(sourceCommit);
+  expect(args.join(" ")).toContain("the source repository and ordered build patches");
+  expect(args.join(" ")).not.toContain("openinterpreter/openinterpreter@");
 });
 
 test("Agent runtime publication rejects a tag for a different source commit", () => {

@@ -60,7 +60,7 @@ export function agentRuntimeReleaseArguments(options: {
     "--title",
     `Nodex Agent runtime ${options.tag.replace("agent-runtime-v", "")}`,
     "--notes",
-    `Immutable Open Interpreter runtime closure based on openinterpreter/openinterpreter@${options.sourceCommit}; reviewed build patches are declared by the Nodex release lock.`,
+    `Immutable Codex-compatible Agent runtime closure based on reviewed source commit ${options.sourceCommit}; the source repository and ordered build patches are declared by the Nodex release lock.`,
   ];
 }
 
