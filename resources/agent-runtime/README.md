@@ -20,6 +20,14 @@ snapshot. When `codexCompatibilityVersion` changes, rebuild and relock the Open
 Interpreter artifacts, regenerate the committed protocol package from that
 runtime, and run `vp run verify:runtime:mac`.
 
+Multi-agent candidates must additionally prove their resource and commit
+boundaries. The conformance closure covers effective V2 tool exposure, mailbox
+count/byte admission, atomic execution and residency limits, initial-task spawn
+rollback, durable and idempotent completion delivery across parent unload and
+process restart, nested depth, eviction and reload, and provider transport
+parity. Generated V2 unions or a compatibility version alone are not acceptance
+evidence.
+
 ## Upgrade procedure
 
 Prefer an immutable upstream Open Interpreter release when its tag resolves to
@@ -54,8 +62,41 @@ python3 scripts/build_codex_package.py \
   --force
 ```
 
+Before packaging, validate the patched source from `codex-rs`. The focused
+tests are part of the source overlay so the mailbox, spawn transaction, and
+completion-delivery policies remain reviewable independently of the desktop
+adapter:
+
+```bash
+cargo check -p codex-core --lib
+cargo check -p codex-app-server --lib -p codex-tui -p codex-acp-server -p codex-cli --bin codex
+cargo test -p codex-state multi_agent_v2_completion_ -- --nocapture
+cargo test -p codex-core --lib multi_agent_v2 -- --test-threads=1
+cargo test -p codex-core --lib mailbox_rejects -- --test-threads=1
+cargo test -p codex-core --lib failed_initial_mail_rolls_back_spawn_registry_residency_and_edge -- --test-threads=1
+cargo test -p codex-core --lib completion_delivery_retries_mailbox_backpressure_until_capacity_recovers -- --test-threads=1
+cargo test -p codex-core --lib successful_completion_message_stays_below_mailbox_budget -- --test-threads=1
+cargo test -p codex-core --lib failed_spawn_reservation_releases_nickname_without_resetting_pool -- --test-threads=1
+cargo test -p codex-core --lib ensure_v2_agent_loaded_reloads_registered_unloaded_agent -- --test-threads=1
+cargo test -p codex-core --lib ensure_v2_child_loaded_preserves_evicted_parent_authority -- --test-threads=1
+cargo test -p codex-core --lib residency_slot_reservation_unloads_oldest_idle_v2_agent -- --test-threads=1
+cargo test -p codex-core --lib interrupted_v2_agent_is_lost_after_residency_eviction -- --test-threads=1
+cargo test -p codex-core --lib execution_guards_count_active_v2_subagent_turns -- --test-threads=1
+cargo test -p codex-core --lib subagent_activity_emits_matching_start_and_completion -- --test-threads=1
+cargo test -p codex-core --lib multi_agent_v2_interrupted_agent_stays_resident_listed_and_accepts_followup -- --test-threads=1
+```
+
 Update the lock from the resulting regular files, stage each local archive, and
-run the schema and runtime gates before publication. Create and push the exact
+run the schema and runtime gates before publication. `vp run
+test:agent-runtime-conformance` includes a packaged-binary semantic scenario,
+not just schema/tool exposure: it exercises spawn rollback, byte admission,
+send/followup/interrupt/list/wait, nested direct-parent completion, interrupted
+reuse, residency eviction/reload, process-restart completion replay, and
+lifecycle cleanup against a mock provider. Durable completion receipts are
+acknowledged only after the parent rollout flush succeeds and the exact stable
+receipt ID can be read back from that rollout; mailbox enqueue or in-memory
+history by itself is never considered delivery.
+Create and push the exact
 artifact tag at the reviewed Nodex commit, then publish through the guarded
 interface:
 

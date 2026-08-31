@@ -2,26 +2,26 @@
   "schemaVersion": 2,
   "runtimeFamily": "open-interpreter",
   "source": {
-    "repository": "openinterpreter/openinterpreter",
-    "commit": "5b07159c477920c159d8892d112b480e7307f257",
+    "repository": "openai/codex",
+    "commit": "a9802304f60ab14c0b07e3ee0db9a9c105ab0cb3",
     "patches": [
       {
-        "sourcePath": "resources/agent-runtime/patches/restore-provider-transports.patch",
-        "artifactPath": "third-party/open-interpreter/patches/restore-provider-transports.patch",
-        "sha256": "b35f5a819006bef6788a1abac8f7fff143b5b996116813b1f27f6bfd1ee7f5b6"
+        "sourcePath": "resources/agent-runtime/patches/openinterpreter-v0.0.41-codex-0.150.0-alpha.12.2.patch",
+        "artifactPath": "third-party/open-interpreter/patches/openinterpreter-v0.0.41-codex-0.150.0-alpha.12.2.patch",
+        "sha256": "e5333af41a96e617363566b576fae5b2a29ebe83ad153241ebdb91389339021f"
       }
     ]
   },
   "release": {
     "repository": "junyudev/nodex",
-    "tag": "agent-runtime-v0.0.40-5b07159c"
+    "tag": "agent-runtime-v0.0.41-a9802304"
   },
-  "runtimeVersion": "0.0.40",
-  "codexCompatibilityVersion": "0.148.0",
-  "protocolSchemaSha256": "17798dcafb15a828053588b08819185411793acdc681c2a1e96f5d9ca13be8ed",
+  "runtimeVersion": "0.0.41",
+  "codexCompatibilityVersion": "0.150.0-alpha.12.2",
+  "protocolSchemaSha256": "03a19946ca6c2fc1685a9406326dda2069f62ecfa464a875e49655c0f17d4ff5",
   "packageManifest": {
     "layoutVersion": 1,
-    "version": "0.0.40",
+    "version": "0.0.41",
     "variant": "open-interpreter",
     "entrypoint": "bin/interpreter",
     "resourcesDir": "codex-resources",
@@ -38,18 +38,18 @@
     "darwin-arm64": {
       "targetTriple": "aarch64-apple-darwin",
       "assetName": "open-interpreter-package-aarch64-apple-darwin.tar.gz",
-      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.0.40-5b07159c/open-interpreter-package-aarch64-apple-darwin.tar.gz",
-      "archiveSha256": "be25e3b71fef779089a2c6596f4f44a08e3d5cef4edc339881d85220970bdc2a",
-      "archiveSize": 226219892,
-      "runtimeMetadataSha256": "9a123ee1f7efdcf7d2f3f0972f70485b6bfca1e78298bd88c5ffebdae47671ed"
+      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.0.41-a9802304/open-interpreter-package-aarch64-apple-darwin.tar.gz",
+      "archiveSha256": "77a7805186b46c2ac525098c98e5e3783889ac6a7c6e3cbd974a007a6eb19623",
+      "archiveSize": 243399937,
+      "runtimeMetadataSha256": "3a4bad2b561f3a6738c78f1569966c033028f54d7207db381fb85a9c8c7df265"
     },
     "darwin-x64": {
       "targetTriple": "x86_64-apple-darwin",
       "assetName": "open-interpreter-package-x86_64-apple-darwin.tar.gz",
-      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.0.40-5b07159c/open-interpreter-package-x86_64-apple-darwin.tar.gz",
-      "archiveSha256": "31629ab5e9dae59ddd24262ec7fd281f748c6f0450efa0b1dc803aabe617b71f",
-      "archiveSize": 237142200,
-      "runtimeMetadataSha256": "6fdee85007667df81a4272f4cb8b42ba7862e2c4530570bcb6c5fca25d9181fb"
+      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.0.41-a9802304/open-interpreter-package-x86_64-apple-darwin.tar.gz",
+      "archiveSha256": "f12516dd4cb3dc18cc9d678665f41cb65dc281710e06139cbdfac0f3ecdf78aa",
+      "archiveSize": 254962360,
+      "runtimeMetadataSha256": "4110fd6d283eccd1c501f7e404234b1719da665c544b763dcd7885a40b40eb52"
     }
   },
   "notices": {
