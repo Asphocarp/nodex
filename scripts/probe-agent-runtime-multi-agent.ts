@@ -382,7 +382,24 @@ function listOrWaitForStatus(input: {
   return false;
 }
 
-function handleFlowRoot(body: JsonRecord, response: ServerResponse, state: SemanticState): void {
+async function waitForSemanticCondition(
+  predicate: () => boolean,
+  description: string,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${description}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function handleFlowRoot(
+  body: JsonRecord,
+  response: ServerResponse,
+  state: SemanticState,
+): Promise<void> {
   switch (state.flowPhase) {
     case 0:
       state.flowPhase = 1;
@@ -526,6 +543,14 @@ function handleFlowRoot(body: JsonRecord, response: ServerResponse, state: Seman
       return;
     case 12:
       requireFunctionOutput(body, "flow_followup_interrupt");
+      // The scenario proves cancellation of an in-flight provider request, not merely
+      // cancellation while the follow-up is still queued. Fast hosts can otherwise
+      // return the accepted follow-up receipt and issue the interrupt before the
+      // child reaches this mock server.
+      await waitForSemanticCondition(
+        () => state.alphaInterruptRequestStarted,
+        "the interrupt target's provider request to start",
+      );
       state.flowPhase = 13;
       respondWithTool(response, "flow-interrupt", "flow_interrupt", "interrupt_agent", {
         target: "/root/alpha",
@@ -909,7 +934,7 @@ async function handleSemanticRequest(
     return;
   }
   if (inputContains(body, rootFlowMarker)) {
-    handleFlowRoot(body, response, state);
+    await handleFlowRoot(body, response, state);
     return;
   }
   if (inputContains(body, durableRootVerifyMarker)) {
