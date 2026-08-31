@@ -90,6 +90,22 @@ const applyAgentImportCommand = defineRendererCommand({
   protocol: { kind: "returned_value" },
 });
 
+const unarchiveChatCommand = defineRendererCommand({
+  key: "archived_chats.unarchive",
+  channel: "codex:thread:unarchive",
+  authority: "external",
+  owner: "ArchivedChatsSettings",
+  protocol: { kind: "returned_value" },
+});
+
+const deleteArchivedChatCommand = defineRendererCommand({
+  key: "archived_chats.delete",
+  channel: "codex:thread:delete-archived",
+  authority: "external",
+  owner: "ArchivedChatsSettings",
+  protocol: { kind: "returned_value" },
+});
+
 export const readDiagnosticsSettings = () => invokeRendererQuery("settings:diagnostics:get");
 
 export const updateDiagnosticsSettings = (input: UpdateDiagnosticsSettingsInput) =>
@@ -146,3 +162,12 @@ export const scanPickedAgentImportHome = (sourceKind: AgentImportSourceKind) =>
 
 export const applyAgentImport = (scanId: string, itemIds: readonly string[]) =>
   invokePlainCommand(applyAgentImportCommand, { itemIds, scanId });
+
+export const readArchivedChats = (refresh: boolean) =>
+  invokeRendererQuery("codex:sidebar:snapshot", { includeArchived: true, refresh });
+
+export const unarchiveChat = (threadId: string) =>
+  invokePlainCommand(unarchiveChatCommand, threadId);
+
+export const deleteArchivedChat = (threadId: string) =>
+  invokePlainCommand(deleteArchivedChatCommand, threadId);

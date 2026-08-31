@@ -22,33 +22,23 @@ import {
   type CodexConversationRelationshipChild,
   type CodexConversationRelationshipThread,
 } from "./CodexConversationRelationshipsProjection";
-import {
-  CODEX_SUBAGENT_DISCOVERY_MAX_PAGE_BYTES,
-  CODEX_SUBAGENT_DISCOVERY_MAX_PAGES,
-  CODEX_SUBAGENT_DISCOVERY_MAX_RESULT_BYTES,
-  CODEX_SUBAGENT_DISCOVERY_MAX_RESULTS,
-  CODEX_SUBAGENT_DISCOVERY_PAGE_TIMEOUT_MS,
-  CodexThreadDirectory,
-} from "./CodexThreadDirectory";
+import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const REPAIR_RETRY = "30 seconds";
 const PAGE_SIZE = 200;
 
 /**
- * Relationship projection is metadata fan-out, never a complete child-thread export. Reuse the
- * directory's bounded discovery envelope so a wide parent cannot make a refresh retain all of
- * its descendants before one membership projection is published.
+ * Relationship projection is metadata fan-out, never Subagent discovery or transcript transport.
+ * Its independent envelope is intentionally wider than the bounded Subagent overview: this
+ * projection preserves direct parent/child navigation while `CodexSubagentDirectory` owns the
+ * recursive Agent graph, status and initial-window budgets.
  */
-export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_PAGES = CODEX_SUBAGENT_DISCOVERY_MAX_PAGES;
-export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_RESULTS =
-  CODEX_SUBAGENT_DISCOVERY_MAX_RESULTS;
-export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_PAGE_BYTES =
-  CODEX_SUBAGENT_DISCOVERY_MAX_PAGE_BYTES;
-export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_RESULT_BYTES =
-  CODEX_SUBAGENT_DISCOVERY_MAX_RESULT_BYTES;
-export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_PAGE_TIMEOUT_MS =
-  CODEX_SUBAGENT_DISCOVERY_PAGE_TIMEOUT_MS;
+export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_PAGES = 32;
+export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_RESULTS = 6_400;
+export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_PAGE_BYTES = 8 * 1024 * 1024;
+export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_RESULT_BYTES = 32 * 1024 * 1024;
+export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_PAGE_TIMEOUT_MS = 10_000;
 export const CODEX_CONVERSATION_RELATIONSHIP_CHILD_SCAN_DEADLINE_MS = 30_000;
 export const CODEX_CONVERSATION_RELATIONSHIP_MAX_ACTIVE_REPAIRS = 32;
 export const CODEX_CONVERSATION_RELATIONSHIP_MAX_REMOVED_TOMBSTONES =
@@ -300,7 +290,15 @@ export const make: Effect.Effect<
     hostId: string,
   ): Effect.fn.Return<boolean> {
     const entry = yield* directory
-      .resolve({ threadId: childThreadId, fidelity: "metadata", hostId })
+      .resolve({
+        threadId: childThreadId,
+        fidelity: "metadata",
+        hostId,
+        metadataScheduling: {
+          conversationId: parentThreadId,
+          widgetId: `conversation-relationships:${childThreadId}`,
+        },
+      })
       .pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("Could not refresh Codex child Thread metadata").pipe(

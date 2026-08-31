@@ -66,7 +66,9 @@ const capability = {
     paginatedHistory: true,
     searchOccurrences: true,
     ephemeralFork: false,
+    multiAgentV2Protocol: false,
     sideConversation: false,
+    subagentAncestorFilter: false,
     threadRevert: false,
   },
 } satisfies CodexAppServerCapabilitySnapshot;
@@ -468,6 +470,7 @@ it.effect("fills a missing local Automation archive side through bounded history
                   text: "older history response",
                   phase: null,
                   memoryCitation: null,
+                  delivery: null,
                 },
               ],
               nextCursor: null,

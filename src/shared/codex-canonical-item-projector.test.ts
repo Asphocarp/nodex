@@ -65,6 +65,7 @@ function generatedItems(): readonly CodexCanonicalItem[] {
       text: "Answer",
       phase: "final_answer",
       memoryCitation: null,
+      delivery: null,
     },
     { type: "plan", id: "plan", text: "- [x] still a proposed plan" },
     { type: "reasoning", id: "reasoning", summary: ["Summary"], content: [] },
@@ -208,6 +209,7 @@ describe("projectCodexCanonicalTurnItemViews", () => {
       text: "partial",
       phase: "commentary",
       memoryCitation: null,
+      delivery: null,
     });
     const plan = materializeCodexCanonicalProtocolItem({
       type: "plan",
@@ -657,6 +659,7 @@ describe("projectCodexCanonicalTurnViews", () => {
       text: "Answer",
       phase: "final_answer",
       memoryCitation: null,
+      delivery: null,
     });
 
     const views = projectCodexCanonicalTurnViews({

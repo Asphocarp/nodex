@@ -122,6 +122,7 @@ it.effect("registers application channels directly against their owning modules"
     });
     const conversations = ConversationCommands.of({
       archive: () => Effect.die("unused"),
+      deleteArchived: () => Effect.die("unused"),
       unarchive: () => Effect.die("unused"),
       setMemoryMode: () => Effect.void,
       startReview: () => Effect.die("unused"),

@@ -51,7 +51,9 @@ it.effect("gates app discovery and coalesces concurrent status reads", () =>
         statusRequests += 1;
         return Deferred.await(statusResponse);
       }
-      if (method === "mcpServer/resource/read") return Effect.succeed({ contents: [] });
+      if (method === "mcpServer/resource/read") {
+        return Effect.succeed({ contents: [], originCallId: null });
+      }
       if (method === "mcpServer/tool/call") return Effect.succeed({ content: [] });
       throw new Error(`Unexpected request: ${method}`);
     }) as CodexGateway["Service"]["requestLocal"];
@@ -101,6 +103,7 @@ it.effect("gates app discovery and coalesces concurrent status reads", () =>
     );
     assert.deepEqual(yield* runtime.readResource({ server: "docs", uri: "docs://effect" }), {
       contents: [],
+      originCallId: null,
     });
     assert.deepEqual(
       yield* runtime.callTool({

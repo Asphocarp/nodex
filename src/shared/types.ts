@@ -4556,16 +4556,72 @@ export interface CodexConversationHistoryExportNextResult {
   done: boolean;
 }
 
-export interface CodexBackgroundSubagentThreadsHydrateInput {
-  rootThreadId: string;
-  threadIds: string[];
-  includeTail?: boolean;
+/** Renderer-facing status from the bounded Subagent Directory overview projection. */
+export type CodexSubagentOverviewStatus = "active" | "waiting" | "done" | "unknown";
+
+/**
+ * Metadata-only child row. Transcript text is intentionally absent: opening a
+ * selected child is the sole boundary that may attach its sparse history.
+ */
+export interface CodexSubagentOverviewRow {
+  threadId: string;
+  parentThreadId: string | null;
+  displayName: string;
+  actorName: string | null;
+  agentRole: string | null;
+  spawnModel: string | null;
+  objective: string | null;
+  status: CodexSubagentOverviewStatus;
+  statusSummary: string | null;
+  startedAtMs: number | null;
+  lastActivityAtMs: number | null;
+  completedAtMs: number | null;
+  diffStats: {
+    linesAdded: number;
+    linesRemoved: number;
+  } | null;
+  canOpen: boolean;
+  canInteract: boolean;
 }
 
-export interface CodexSubagentPanelHydrateInput {
+export interface CodexSubagentOverviewSection {
+  rows: CodexSubagentOverviewRow[];
+  /** Number of positive facts currently indexed for this section. */
+  knownCount: number;
+  /** Null until discovery is complete; never infer a total from an incomplete pass. */
+  totalCount: number | null;
+  continuation: string | null;
+}
+
+/** One generation-fenced, revisioned and bounded root overview projection. */
+export interface CodexSubagentOverviewWindow {
   rootThreadId: string;
-  threadIds?: string[];
-  includeTail?: boolean;
+  revision: number;
+  generation: number;
+  completeness: "complete" | "incomplete";
+  active: CodexSubagentOverviewSection;
+  done: CodexSubagentOverviewSection;
+}
+
+export interface CodexSubagentOverviewReadInput {
+  rootThreadId: string;
+  mode: "initial" | "expanded";
+}
+
+export interface CodexSelectedSubagentHydrateInput {
+  rootThreadId: string;
+  threadId: string;
+}
+
+export interface CodexSelectedSubagentHydrateResult {
+  rootThreadId: string;
+  threadId: string;
+  revision: number;
+  fidelity: "residentSparse" | "attachedSparse" | "metadata";
+  checkpoint: string | null;
+  canInteract: boolean;
+  outcome: "ready" | "unavailable" | "failed";
+  errorMessage: string | null;
 }
 
 export type CodexConversationPatchPathSegment = string | number;
@@ -4592,6 +4648,7 @@ export type CodexEvent =
   | { type: "rateLimits"; rateLimits: CodexRateLimitsSnapshot | null }
   | { type: "appsUpdated"; apps: ProtocolAppInfo[] }
   | { type: "threadSummary"; thread: CodexThreadSummary }
+  | { type: "subagentOverviewInvalidated"; rootThreadId: string }
   | { type: "threadDeleted"; threadId: string }
   | { type: "threadArchivedState"; threadId: string; archived: boolean }
   | { type: "scheduledAutomationChanged"; event: CodexScheduledAutomationChangedEvent }

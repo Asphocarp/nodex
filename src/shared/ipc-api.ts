@@ -223,8 +223,10 @@ import type {
   CodexCanonicalSetupCodexStepResponse,
   CodexBackgroundProcessRow,
   CodexBackgroundProcessRunActionInput,
-  CodexBackgroundSubagentThreadsHydrateInput,
-  CodexSubagentPanelHydrateInput,
+  CodexSubagentOverviewReadInput,
+  CodexSubagentOverviewWindow,
+  CodexSelectedSubagentHydrateInput,
+  CodexSelectedSubagentHydrateResult,
   CodexConversationSnapshot,
   CodexConnectionState,
   CodexDeveloperInstructionSettings,
@@ -2126,17 +2128,13 @@ export interface IpcApi {
     args: [threadId: string, launchId: string];
     result: Extract<CodexRendererConversationResumeResult, { role: "owner" }>;
   };
-  "codex:thread:background-subagents:hydrate": {
-    args: [input: CodexBackgroundSubagentThreadsHydrateInput];
-    result: CodexThreadSummary[];
+  "codex:subagents:overview:read": {
+    args: [input: CodexSubagentOverviewReadInput];
+    result: CodexSubagentOverviewWindow;
   };
-  "codex:thread:subagents-panel:hydrate": {
-    args: [input: CodexSubagentPanelHydrateInput];
-    result: CodexThreadSummary[];
-  };
-  "codex:subagent-thread:opened": {
-    args: [threadId: string];
-    result: boolean;
+  "codex:subagents:selected:hydrate": {
+    args: [input: CodexSelectedSubagentHydrateInput];
+    result: CodexSelectedSubagentHydrateResult;
   };
   "codex:thread:view-active:set": {
     args: [input: { threadId: string; active: boolean }];
@@ -2215,6 +2213,7 @@ export interface IpcApi {
     result: { title: string | null };
   };
   "codex:thread:archive": { args: [threadId: string]; result: boolean };
+  "codex:thread:delete-archived": { args: [threadId: string]; result: boolean };
   "codex:thread:unarchive": {
     args: [threadId: string];
     result: CodexThreadSummary | null;

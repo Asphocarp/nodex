@@ -530,6 +530,23 @@ const SETTINGS_SEARCH_PANELS = {
       },
     ],
   },
+  "data-controls": {
+    title: "Data controls",
+    subtitle: "Manage archived chats and permanent local deletion.",
+    groups: [
+      {
+        title: "Archived chats",
+        messages: [
+          "Search archived chats",
+          "Group archived chats",
+          "Sort archived chats",
+          "Unarchive",
+          "Delete archived chat",
+          "Delete all archived local chats",
+        ],
+      },
+    ],
+  },
   backups: {
     title: "Backups",
     subtitle: "Snapshot cadence, retention, and restore operations.",
@@ -669,6 +686,9 @@ export const SETTINGS_SEARCH_CATALOG = {
   "hooks-settings": {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS["hooks-settings"]),
     searchTerms: projectNameTerms,
+  },
+  "data-controls": {
+    messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS["data-controls"]),
   },
   backups: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.backups),

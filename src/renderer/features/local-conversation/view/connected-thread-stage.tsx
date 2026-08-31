@@ -30,7 +30,6 @@ import type {
 import {
   requestLocalConversationResume,
   markLocalConversationAsRead,
-  markLocalSubagentThreadOpened,
   setLocalConversationThreadViewActive,
   setLocalConversationThreadPresented,
   useComposerIntent,
@@ -148,6 +147,7 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   onForkFromTurnIntoWorktree?: (input: { threadId: string; targetTurnId: string }) => Promise<void>;
   initialUiState?: ThreadBodyUiStateOverrides;
   backgroundAgentDetail?: boolean;
+  backgroundAgentCanInteract?: boolean;
   rightPanelComposerOverlayEnabled?: boolean;
   rightPanelComposerOverlayCompact?: boolean;
   rightPanelComposerOverlayTarget?: HTMLElement | null;
@@ -926,6 +926,7 @@ export function ConnectedThreadStage({
   onForkFromTurnIntoWorktree,
   initialUiState,
   backgroundAgentDetail = false,
+  backgroundAgentCanInteract = false,
   rightPanelComposerOverlayEnabled = false,
   rightPanelComposerOverlayCompact = false,
   rightPanelComposerOverlayTarget = null,
@@ -1095,12 +1096,6 @@ export function ConnectedThreadStage({
   }, [activeThreadId, threadLifecycleActive]);
 
   useEffect(() => {
-    if (!backgroundAgentDetail || !activeThreadId) return;
-
-    void markLocalSubagentThreadOpened(activeThreadId).catch(() => {});
-  }, [activeThreadId, backgroundAgentDetail]);
-
-  useEffect(() => {
     void latestTurn?.status;
     void latestTurnKey;
     void newestCanonicalRequest;
@@ -1252,7 +1247,7 @@ export function ConnectedThreadStage({
             }
             contentShiftX={summaryPanelContentShift}
             footer={
-              backgroundAgentDetail ? null : (
+              backgroundAgentDetail && !backgroundAgentCanInteract ? null : (
                 <ConnectedThreadStageFooter
                   activeThreadId={activeThreadId}
                   input={input}

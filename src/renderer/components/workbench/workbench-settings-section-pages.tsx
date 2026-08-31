@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useEffect, useState } from "react";
 import { AppUpdateSettingsControl } from "./app-update-settings-control";
 import { AgentImportSettingsPage } from "./agent-import-settings-page";
+import { ArchivedChatsSettingsPage } from "./archived-chats-settings-page";
 import { ComputerUseSettingsPage } from "./computer-use-settings-page";
 import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-page";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
@@ -690,5 +691,6 @@ export const SETTINGS_PAGE_COMPONENTS: SettingsPageComponentRegistry = {
   worktrees: WorktreesSettingsPage,
   "local-environments": LocalEnvironmentsSettingsSectionPage,
   hooks: WorkbenchHooksSettingsPage,
+  "data-controls": ArchivedChatsSettingsPage,
   backups: BackupsSettingsPage,
 };

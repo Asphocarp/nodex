@@ -156,6 +156,7 @@ const appThread = (): Thread => ({
   ephemeral: false,
   section: null,
   sectionEnteredAt: null,
+  projectId: null,
   historyMode: "paginated",
   modelProvider: "openai",
   createdAt: 100,
@@ -192,6 +193,7 @@ const largeAgentItem = (turnId: string, index: number): ThreadItem => ({
   text: `${LARGE_ITEM_TEXT}:${turnId}:${index}`,
   phase: "final_answer",
   memoryCitation: null,
+  delivery: null,
 });
 
 const notFound = () =>
@@ -1016,6 +1018,7 @@ it.effect("rejects one oversized partial-Turn item page at its exact cursor boun
                   text: oversizedText,
                   phase: "final_answer",
                   memoryCitation: null,
+                  delivery: null,
                 },
               },
             ],
