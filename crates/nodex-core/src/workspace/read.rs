@@ -253,6 +253,44 @@ pub(super) fn read(
                 &window,
             )?,
         }),
+        ProjectWorkspaceRead::SubagentOverviewWindow {
+            universe,
+            active_window,
+            done_window,
+        } => Ok(ProjectWorkspaceReadValue::SubagentOverviewWindow {
+            overview: super::subagent_projection::read_overview(
+                connection,
+                library_id,
+                commit_head,
+                &universe,
+                &active_window,
+                &done_window,
+            )?,
+        }),
+        ProjectWorkspaceRead::SubagentOverviewItem {
+            universe,
+            thread_id,
+        } => Ok(ProjectWorkspaceReadValue::SubagentOverviewItem {
+            item: super::subagent_projection::read_overview_item(
+                connection, library_id, &universe, &thread_id,
+            )?
+            .map(Box::new),
+            projection_revision: commit_head,
+        }),
+        ProjectWorkspaceRead::SubagentLifecycleBatch {
+            lifecycle_operation_id,
+            include_settled,
+            window,
+        } => Ok(ProjectWorkspaceReadValue::SubagentLifecycleBatch {
+            lifecycle: super::subagent_projection::read_lifecycle_batch(
+                connection,
+                library_id,
+                commit_head,
+                &lifecycle_operation_id,
+                include_settled,
+                &window,
+            )?,
+        }),
         ProjectWorkspaceRead::ExecutionContext { thread_id } => {
             validate_id("thread_id", &thread_id)?;
             let thread = read_thread(connection, library_id, &thread_id)?

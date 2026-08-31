@@ -14,6 +14,19 @@ use crate::infrastructure::cursor::{
 };
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
+pub(super) const THREAD_SUMMARY_COLUMNS: &str = "
+  thread.thread_id, thread.project_id, link.session_id,
+  thread.forked_from_id, thread.parent_thread_id, thread.thread_name,
+  thread.thread_source, thread.service_name, thread.agent_nickname,
+  thread.agent_role, thread.agent_path, thread.thread_preview,
+  thread.model_provider, thread.model_id, thread.harness_id,
+  thread.reasoning_effort, thread.service_tier, thread.execution_host_id, thread.cwd,
+  thread.managed_worktree_path, thread.projectless_output_directory,
+  thread.projectless_workspace_browser_root, thread.status_type,
+  thread.status_active_flags_json, thread.archived, thread.created_at,
+  thread.updated_at, thread.recency_at, thread.linked_at
+";
+
 pub(super) fn read_child_thread_window(
     connection: &Connection,
     library_id: &str,
@@ -82,16 +95,7 @@ pub(super) fn read_child_thread_window(
     ));
     let limit_parameter = parameters.len();
     let sql = format!(
-        "SELECT thread.thread_id, thread.project_id, link.session_id, \
-           thread.forked_from_id, thread.parent_thread_id, thread.thread_name, \
-           thread.thread_source, thread.service_name, thread.agent_nickname, \
-           thread.agent_role, thread.agent_path, thread.thread_preview, \
-           thread.model_provider, thread.model_id, thread.harness_id, \
-           thread.reasoning_effort, thread.service_tier, thread.execution_host_id, thread.cwd, \
-           thread.managed_worktree_path, thread.projectless_output_directory, \
-           thread.projectless_workspace_browser_root, thread.status_type, \
-           thread.status_active_flags_json, thread.archived, thread.created_at, \
-           thread.updated_at, thread.recency_at, thread.linked_at \
+        "SELECT {THREAD_SUMMARY_COLUMNS} \
          FROM codex_threads thread \
          LEFT JOIN project_session_threads link ON link.thread_id = thread.thread_id \
          LEFT JOIN projects project ON project.id = thread.project_id \
@@ -103,7 +107,7 @@ pub(super) fn read_child_thread_window(
     );
     let rows = connection
         .prepare(&sql)?
-        .query_map(params_from_iter(parameters.iter()), thread_row)?
+        .query_map(params_from_iter(parameters.iter()), thread_summary_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let candidates = rows
         .into_iter()
@@ -138,7 +142,9 @@ pub(super) fn read_child_thread_window(
     )
 }
 
-fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectWorkspaceThreadSummary> {
+pub(super) fn thread_summary_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<ProjectWorkspaceThreadSummary> {
     let status_type = match row.get::<_, String>(22)?.as_str() {
         "notLoaded" => Ok(CodexThreadStatusType::NotLoaded),
         "idle" => Ok(CodexThreadStatusType::Idle),
