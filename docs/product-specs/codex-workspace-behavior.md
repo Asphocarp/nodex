@@ -125,8 +125,10 @@ independent of the parent's resident history size. It may not recursively create
 Selected transcript text may prefill its composer without submitting.
 
 Inline child agents remain descendants of one root Chat and open through the
-single read-only Subagents surface rather than becoming root Sessions. Summary
-presentation is defined in [Thread Summary Panel Behavior](thread-summary-panel-behavior.md).
+single root-scoped Subagents surface rather than becoming root Sessions. Their
+discovery, status, selected detail, and root lifecycle are defined in
+[Codex Subagent Behavior](codex-subagent-behavior.md); summary presentation is
+defined in [Thread Summary Panel Behavior](thread-summary-panel-behavior.md).
 
 ## Sidebar availability
 

@@ -110,24 +110,25 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 
 ### State authority table
 
-| State or capability                                                                         | Authoritative owner                                                          | Adapters and projections                                                                                                                         |
-| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Blocks, Pages, Page Files, Databases, Documents, search, schedules, history                 | Rust Core Library/Database/Document Modules                                  | Core protocol, authenticated blob streams, Electron adapters, CLI, renderer read models                                                          |
-| Page-key namespaces, prefix history, counters, assignments                                  | Rust Core Database Module                                                    | Contextual Core projections; CLI/Agent resolve to canonical Page IDs                                                                             |
-| Projects, Sessions, durable Thread metadata and queued follow-up ledgers, execution context | Rust Core Workspace Module                                                   | Electron Codex/Workspace services and renderer queries                                                                                           |
-| Sidebar Section identities, root order, mixed Project/Session placement, host links         | Rust Core Workspace Module                                                   | Main bounded adapters, renderer projections, agent tools, per-host app-server ThreadSection synchronization                                      |
-| Page–Project Session Linked chat edges and Page Chat activity                               | Rust Core Workspace Module                                                   | Effect Main Workspace Adapter; renderer joins bounded Workspace activity with Database Page windows                                              |
-| Project access to Library resources                                                         | Rust Core Library authorization and resource-grant boundary                  | Workspace supplies Project identity; Electron and CLI bind access context                                                                        |
-| Automation definitions, runs, occurrences, reminder leases and receipts                     | Rust Core Automation Module                                                  | Electron scheduler/executor and renderer queries                                                                                                 |
-| Backups, restore, bounded operational journals, Store maintenance                           | Rust Core Administration Module                                              | Electron administration adapter, background backup jobs, and controlled relaunch                                                                 |
-| Active Codex conversation document                                                          | Current renderer owner, seeded from app-server state                         | Main holds a validated relay/recovery replica; followers render validated copies                                                                 |
-| Codex wire protocol and remote Thread observations                                          | Pinned Codex-compatible app-server                                           | Main validates and routes generated protocol envelopes                                                                                           |
-| Managed worktree creation and lifecycle                                                     | Electron Main lifecycle coordinator and the worktree's execution-host worker | Renderer projects typed pending/availability/inventory state; Core persists only durable execution location and Session/Thread/worktree metadata |
-| Window layout, owner-scoped Scenes, surface placement                                       | Renderer Window Session App aggregate                                        | Main persists the revisioned Window Session catalog                                                                                              |
-| Browser guests, Browser Use, MCP App guests, Terminal processes                             | Electron Main runtime aggregates                                             | Renderer holds presentation descriptors and host bindings only                                                                                   |
-| Git repository live-read state                                                              | Main-owned Git worker process                                                | Typed Main/preload bus and renderer query projections                                                                                            |
-| Structural clipboard preparing/ready/superseded lifecycle and native slot ownership         | Electron Main Structural Clipboard Runtime                                   | Private MIME routes trusted windows; standard HTML/text stays portable; Core retains durable bundle and cut authority                            |
-| Preferences, non-Page managed assets, logs, OS notifications                                | Electron Main local/OS adapters                                              | Typed renderer IPC; Page File blobs remain Core-owned, while Canvas/queue and other host assets retain their narrow existing adapters            |
+| State or capability                                                                           | Authoritative owner                                                          | Adapters and projections                                                                                                                                              |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Blocks, Pages, Page Files, Databases, Documents, search, schedules, history                   | Rust Core Library/Database/Document Modules                                  | Core protocol, authenticated blob streams, Electron adapters, CLI, renderer read models                                                                               |
+| Page-key namespaces, prefix history, counters, assignments                                    | Rust Core Database Module                                                    | Contextual Core projections; CLI/Agent resolve to canonical Page IDs                                                                                                  |
+| Projects, Sessions, durable Thread metadata and queued follow-up ledgers, execution context   | Rust Core Workspace Module                                                   | Electron Codex/Workspace services and renderer queries                                                                                                                |
+| Sidebar Section identities, root order, mixed Project/Session placement, host links           | Rust Core Workspace Module                                                   | Main bounded adapters, renderer projections, agent tools, per-host app-server ThreadSection synchronization                                                           |
+| Page–Project Session Linked chat edges and Page Chat activity                                 | Rust Core Workspace Module                                                   | Effect Main Workspace Adapter; renderer joins bounded Workspace activity with Database Page windows                                                                   |
+| Project access to Library resources                                                           | Rust Core Library authorization and resource-grant boundary                  | Workspace supplies Project identity; Electron and CLI bind access context                                                                                             |
+| Automation definitions, runs, occurrences, reminder leases and receipts                       | Rust Core Automation Module                                                  | Electron scheduler/executor and renderer queries                                                                                                                      |
+| Backups, restore, bounded operational journals, Store maintenance                             | Rust Core Administration Module                                              | Electron administration adapter, background backup jobs, and controlled relaunch                                                                                      |
+| Active Codex conversation document                                                            | Current renderer owner, seeded from app-server state                         | Main holds a validated relay/recovery replica; followers render validated copies                                                                                      |
+| Codex wire protocol and remote Thread observations                                            | Pinned Codex-compatible app-server                                           | Main validates and routes generated protocol envelopes                                                                                                                |
+| Subagent positive descendant, causal status, discovery-completeness, and lifecycle projection | Rust Core Workspace Module                                                   | Main `CodexSubagentDirectory` reconciles app-server observations into bounded root overview and selected-detail interfaces; Core is not the execution graph authority |
+| Managed worktree creation and lifecycle                                                       | Electron Main lifecycle coordinator and the worktree's execution-host worker | Renderer projects typed pending/availability/inventory state; Core persists only durable execution location and Session/Thread/worktree metadata                      |
+| Window layout, owner-scoped Scenes, surface placement                                         | Renderer Window Session App aggregate                                        | Main persists the revisioned Window Session catalog                                                                                                                   |
+| Browser guests, Browser Use, MCP App guests, Terminal processes                               | Electron Main runtime aggregates                                             | Renderer holds presentation descriptors and host bindings only                                                                                                        |
+| Git repository live-read state                                                                | Main-owned Git worker process                                                | Typed Main/preload bus and renderer query projections                                                                                                                 |
+| Structural clipboard preparing/ready/superseded lifecycle and native slot ownership           | Electron Main Structural Clipboard Runtime                                   | Private MIME routes trusted windows; standard HTML/text stays portable; Core retains durable bundle and cut authority                                                 |
+| Preferences, non-Page managed assets, logs, OS notifications                                  | Electron Main local/OS adapters                                              | Typed renderer IPC; Page File blobs remain Core-owned, while Canvas/queue and other host assets retain their narrow existing adapters                                 |
 
 Authority and presentation are intentionally different. A Scene can present a Page without owning it; a renderer cache can display a Database window without authorizing it; Main can relay a Codex document without becoming its visible writer.
 
@@ -625,8 +626,12 @@ flowchart LR
     Endpoint --> Gateway["Typed Gateway"]
     Gateway --> Inbox["Request Inbox and protocol interpreter"]
     Core["Core Workspace"] --> Directory["Thread directory and durable projection"]
+    Core --> Subagents["Subagent positive-fact and status projection"]
     Inbox --> Lane["Per-Thread generation and causal lane"]
     Directory --> Lane
+    Inbox --> SubagentDirectory["Main Subagent Directory"]
+    Subagents --> SubagentDirectory
+    SubagentDirectory --> Projection
     Lane --> Entity["Private Conversation Entity state"]
     Entity --> Events["Application event hub"]
     Events --> Projection["Renderer and native projections"]
@@ -706,15 +711,27 @@ opaque retention cuts remain inert rather than inventing a cursor. Renderer gaps
 through the current owner, and persisted search hydrates only a bounded island around the selected
 occurrence.
 
-Conversation Relationships are a derived presentation projection, never another parent/child
-authority. For one parent, Main combines child Thread identities observed in canonical collaboration
-items with Core's durable child-Thread relationship, then enriches them from loaded metadata or tail
-conversation state. The projection excludes archived or reparented children, preserves canonical
-collaboration order before durable creation order, and derives display identity and request role
-without writing those choices back to Core or the transcript. Missing friendly child metadata
-triggers a keyed metadata directory repair; relationship invalidation rebuilds and publishes
-the complete parent projection. Restart, resume, reparenting, and late child materialization
-therefore converge by recomputation rather than replaying a separate relationship store.
+Subagent projection belongs to one Main `CodexSubagentDirectory` deep Module. The app-server remains
+the execution graph and transcript authority. The Directory generation-fences spawn, status,
+completion, and bounded metadata-list observations, then applies only verified positive child and
+parent facts to a Core Workspace projection. Core stores page identity, continuation,
+discovery-completeness, causal status evidence, and expected lifecycle closure and returns separate
+keyset windows for unresolved and done descendants. That durable projection is a restart-safe local
+index, not a second scheduler, mailbox, or negative graph authority: only a complete universe may
+support absence inference.
+
+The renderer consumes a revisioned root overview with bounded initial and explicit expanded windows.
+Overview rows have metadata and status but no child transcript, and parent surfaces never subscribe
+to child conversations. Multi-page expansion pins one Core projection revision and restarts the
+whole bounded scan on mutation, so Main never publishes a mixed-revision tree. Main validates one
+selected descendant before delegating its sparse attach to the existing Thread history and
+owner/follower Modules; the route becomes ready only after the requesting renderer has installed
+the role, checkpoint, attachment state, and conversation snapshot. Ordinary collaboration notifications
+admit status/topology evidence without waiting for remote metadata, while discovery, metadata
+enrichment, interruption skeletons, and lifecycle postconditions share the existing root-scoped
+request scheduler lanes. Root interruption, archive, and permanent deletion compose the Directory's typed subtree result;
+partial lifecycle state remains durable rather than disappearing behind a successful root response.
+See [Codex Subagent Behavior](product-specs/codex-subagent-behavior.md).
 
 Execution hosts and managed worktrees are typed dynamic resources subordinate to Main Scope. Core
 stores the durable host, cwd, worktree path, and writable roots; host runtimes and workers own
@@ -734,6 +751,7 @@ parallel shutdown protocol or application-internal Promise adapter graph.
 The detailed product contracts are
 [Codex owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md),
 [Codex transcript behavior](product-specs/codex-thread-transcript-behavior.md),
+[Codex Subagent behavior](product-specs/codex-subagent-behavior.md),
 [Codex workspace behavior](product-specs/codex-workspace-behavior.md), and
 [Codex managed worktree lifecycle](product-specs/codex-managed-worktree-lifecycle-behavior.md).
 The process and resource boundary is fixed by
