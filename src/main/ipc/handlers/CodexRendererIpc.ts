@@ -1,17 +1,28 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import type { IpcMainInvokeEvent } from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
+import {
+  RENDERER_DELIVERY_ACK_CHANNEL,
+  parseRendererDeliveryEnvelope,
+  type RendererDeliveryTransferAckEnvelope,
+} from "../../../shared/renderer-delivery-transport";
 import {
   parseCodexUserInputAutoResolutionActivityInput,
   parseCodexUserInputAutoResolutionTarget,
 } from "../../../shared/codex-user-input-auto-resolution";
+import {
+  parseCodexHistoryResidencyPinsInput,
+  type CodexHistoryResidencyPinsInput,
+  type CodexHistoryResidencyPinsResult,
+} from "../../../shared/codex-history-residency-pins";
 import { MainConfig } from "../../app/MainConfig";
 import { CodexAppProtocolTools } from "../../codex-application/CodexAppProtocolTools";
 import { CodexRendererConversationCoordinator } from "../../codex-application/CodexRendererConversationCoordinator";
 import { CodexRendererConversationRegistry } from "../../codex-application/CodexRendererConversationRegistry";
 import { CodexUserInputAutoResolution } from "../../codex-application/CodexUserInputAutoResolution";
+import { ConversationEntityMap } from "../../codex-application/internal/ConversationEntityMap";
 import type { RendererClientWebContents } from "../../codex/renderer-client-runtime-contracts";
 import { RendererClientRuntime } from "../../host-runtime/RendererClientRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -28,11 +39,67 @@ type Handler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => Effect.Effect<IpcApi[Channel]["result"], unknown>;
 
+export const parseRendererDeliveryAcknowledgment = (
+  input: unknown,
+): RendererDeliveryTransferAckEnvelope => {
+  const envelope = parseRendererDeliveryEnvelope(input);
+  if (envelope.kind !== "transferAck") {
+    throw new Error("Renderer delivery acknowledgment channel requires an ACK");
+  }
+  return envelope;
+};
+
+export const routeRendererDeliveryAcknowledgment = (
+  input: unknown,
+  handle: (acknowledgment: RendererDeliveryTransferAckEnvelope) => Effect.Effect<boolean>,
+): Effect.Effect<void> =>
+  Effect.try({
+    try: () => parseRendererDeliveryAcknowledgment(input),
+    catch: (cause) =>
+      new CodexRendererIpcError({ operation: "parse-delivery-acknowledgment", cause }),
+  }).pipe(
+    Effect.flatMap(handle),
+    Effect.asVoid,
+    Effect.catch(() => Effect.void),
+  );
+
+export const applyCodexHistoryResidencyPins = (input: {
+  readonly rawInput: unknown;
+  readonly clientId: string;
+  readonly conversations: ConversationEntityMap["Service"];
+  readonly rendererConversations: CodexRendererConversationRegistry["Service"];
+}): CodexHistoryResidencyPinsResult => {
+  const pins = parseCodexHistoryResidencyPinsInput(input.rawInput);
+  if (!pins) return { status: "invalid" };
+  const isCleanup = pins.turnIds.length === 0 && pins.islandIds.length === 0;
+  if (!isCleanup) {
+    if (input.rendererConversations.getOwnerClientId(pins.threadId) !== input.clientId) {
+      return { status: "notOwner" };
+    }
+    if (!input.rendererConversations.isClientPresenting(pins.threadId, input.clientId)) {
+      return { status: "notPresenting" };
+    }
+  }
+  const conversation = input.conversations.current(pins.threadId);
+  if (!conversation) return { status: "notLoaded" };
+  if (conversation.generation !== pins.expectedConversationGeneration) {
+    return { status: "staleGeneration" };
+  }
+  return conversation.setHistoryResidencyPins({
+    clientId: input.clientId,
+    expectedTopologyGeneration: pins.expectedTopologyGeneration,
+    expectedHistoryMutationRevision: pins.expectedHistoryMutationRevision,
+    turnIds: pins.turnIds,
+    islandIds: pins.islandIds,
+  });
+};
+
 export const live: Layer.Layer<
   never,
   never,
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
+  | ConversationEntityMap
   | CodexAppProtocolTools
   | CodexUserInputAutoResolution
   | ElectronIpc
@@ -46,12 +113,13 @@ export const live: Layer.Layer<
     const coordinator = yield* CodexRendererConversationCoordinator;
     const codexAppTools = yield* CodexAppProtocolTools;
     const rendererConversations = yield* CodexRendererConversationRegistry;
+    const conversations = yield* ConversationEntityMap;
     const userInputAutoResolution = yield* CodexUserInputAutoResolution;
     const windows = yield* WindowRuntime;
     const rendererClients = yield* RendererClientRuntime;
     const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
       ipc.handle(channel, handler);
-    const authorize = (event: IpcMainInvokeEvent) =>
+    const authorize = (event: IpcMainEvent | IpcMainInvokeEvent) =>
       Effect.try({
         try: () => {
           requireTrustedAppRendererSender(event, "Codex renderer coordination", config.rendererUrl);
@@ -68,6 +136,19 @@ export const live: Layer.Layer<
         Effect.flatMap(() =>
           rendererClients.handleResponse(event.sender as RendererClientWebContents, response),
         ),
+      ),
+    );
+    yield* ipc.on(RENDERER_DELIVERY_ACK_CHANNEL, (event, input: unknown) =>
+      authorize(event).pipe(
+        Effect.andThen(
+          routeRendererDeliveryAcknowledgment(input, (acknowledgment) =>
+            rendererClients.handleDeliveryAcknowledgment(
+              event.sender as RendererClientWebContents,
+              acknowledgment,
+            ),
+          ),
+        ),
+        Effect.catch(() => Effect.void),
       ),
     );
     yield* handle("codex:thread:view-active:set", (event, input: unknown) =>
@@ -123,6 +204,20 @@ export const live: Layer.Layer<
             : Effect.succeed(false);
         }),
       ),
+    );
+    yield* handle(
+      "codex:thread:history-residency-pins:set",
+      (event, input: CodexHistoryResidencyPinsInput) =>
+        authorize(event).pipe(
+          Effect.map((clientId) =>
+            applyCodexHistoryResidencyPins({
+              rawInput: input,
+              clientId,
+              conversations,
+              rendererConversations,
+            }),
+          ),
+        ),
     );
     yield* handle("codex:thread-owner:stream-state:publish", (event, input) =>
       authorize(event).pipe(

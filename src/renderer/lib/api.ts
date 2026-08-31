@@ -164,6 +164,65 @@ export async function invoke(channel: string, ...args: unknown[]): Promise<unkno
   return transport.invoke(channel, ...args);
 }
 
+export function searchCodexPersistedHistory(threadId: string, query: string) {
+  return invoke("codex:thread:history-search", threadId, query);
+}
+
+export function hydrateCodexPersistedHistoryOccurrence(
+  input: import("../../shared/codex-persisted-history-search").CodexPersistedHistoryOccurrenceHydrateInput,
+) {
+  return invoke("codex:thread:history-search:hydrate", input);
+}
+
+export function setCodexHistoryResidencyPins(
+  input: import("../../shared/codex-history-residency-pins").CodexHistoryResidencyPinsInput,
+) {
+  return invoke("codex:thread:history-residency-pins:set", input);
+}
+
+function invokeCancellableCodexPromptRail<
+  Channel extends "codex:thread:prompt-rail:index" | "codex:thread:prompt-rail:reveal",
+>(
+  channel: Channel,
+  request: IpcApi[Channel]["args"][0],
+  signal?: AbortSignal,
+): Promise<IpcApi[Channel]["result"]> {
+  const requestId = (request as { readonly requestId: string }).requestId;
+  if (signal?.aborted) {
+    return Promise.resolve({ status: "cancelled", requestId } as IpcApi[Channel]["result"]);
+  }
+
+  const cancel = () => {
+    void invoke("codex:thread:prompt-rail:cancel", requestId).catch(() => undefined);
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  return invoke(channel, request as never).finally(() => {
+    signal?.removeEventListener("abort", cancel);
+  }) as Promise<IpcApi[Channel]["result"]>;
+}
+
+export function loadCodexPromptRailIndex(
+  request: import("../../shared/codex-prompt-rail-history").CodexPromptRailIndexRequest,
+  options: { readonly signal?: AbortSignal } = {},
+) {
+  return invokeCancellableCodexPromptRail(
+    "codex:thread:prompt-rail:index",
+    request,
+    options.signal,
+  );
+}
+
+export function revealCodexPromptRailTurn(
+  request: import("../../shared/codex-prompt-rail-history").CodexPromptRailRevealRequest,
+  options: { readonly signal?: AbortSignal } = {},
+) {
+  return invokeCancellableCodexPromptRail(
+    "codex:thread:prompt-rail:reveal",
+    request,
+    options.signal,
+  );
+}
+
 export function readMicrophoneAccess(): Promise<MicrophoneAccessStatus> {
   return invoke("codex:dictation:microphone-access:read");
 }
