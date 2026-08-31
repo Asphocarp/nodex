@@ -345,11 +345,13 @@ cancellation, and idle-job retention, and never mutates the resident snapshot.
 Scheduler admission applies a capped object-graph estimate before canonical request-key encoding,
 so an oversized request cannot force a second payload-sized allocation merely to be rejected.
 
-Thread and child-Thread catalogs are metadata projections with independent page, result, byte,
-cursor-progress, and total-deadline budgets. Sidebar refresh, relationship repair, fork-title
-selection, and subagent discovery publish only a complete admitted result; truncation, cursor
-cycles, generation replacement, or timeout fail closed instead of persisting a partial view or
-falling back to transcript hydration.
+Thread catalogs and Subagent discovery are metadata projections with independent page, result,
+byte, cursor-progress, and total-deadline budgets. Sidebar refresh and fork-title selection publish
+only a complete admitted result. Subagent discovery may durably admit a verified positive page while
+keeping the root universe explicitly incomplete; truncation, cursor cycles, generation replacement,
+or timeout can therefore preserve known children and a continuation but can never infer absence or
+completion. A complete marker is accepted only for a reachable descendant closure. Neither path
+falls back to child transcript hydration.
 
 Persisted-history search separately bounds the query, occurrence page, each occurrence's ids,
 cursor, snippet, and retained index. A renderer-supplied oversized occurrence is rejected before
@@ -371,17 +373,52 @@ accept only contiguous patches from the same owner epoch. A revision gap, hash m
 replacement, renderer loss, or transport reset requests a fresh barrier. Recovery never merges
 competing renderer documents or advances a follower past an unacknowledged checkpoint.
 
-Conversation Relationships are rebuilt projections rather than recoverable state of their own. A
-parent refresh joins child identities observed in its canonical collaboration items with Core's
-durable child-Thread relationships, then enriches them from any loaded metadata or bounded-tail child
-generation. Archived and reparented children are excluded, canonical collaboration order precedes
-durable creation order, and missing friendly identity schedules a keyed directory repair. A failed
-refresh publishes no partial membership; later invalidation or repair recomputes the complete parent
-projection. Repair concurrency and deletion tombstones are bounded; tombstone saturation disables
-metadata enrichment and falls back to durable-only membership until a fresh scoped runtime replaces
-the projection, rather than risking resurrection or retaining an unbounded exclusion set. Restart,
-resume, reparenting, and late child materialization therefore converge without a relationship
-journal or parallel parent map.
+Subagent recovery has one root universe coordinate: app-server host, source epoch, endpoint
+generation, and root Thread. Main's Subagent Directory records spawn before metadata when necessary,
+keeps status-before-identity evidence in a bounded host-generation buffer, and flushes it only after
+Core atomically applies metadata and the parent edge. Page identity is idempotent, conflicting reuse
+is rejected, and evidence comparison prevents metadata or an old generation from overwriting a newer
+runtime notification or completion. `notLoaded` and interrupted Turn state remain unresolved rather
+than becoming false terminal evidence. A later active occurrence may reopen a previously completed
+child.
+
+Core stores positive descendants and status evidence as a restart-safe projection and returns
+separate bounded keyset windows; Main and renderers do not retain every child conversation. Initial
+and expanded overview reads carry a projection revision and completeness, so an older revision or
+same-generation incomplete result cannot replace a complete visible window. Parent notifications,
+steady-state overview, and explicit expansion perform no child resume, Turn/item page, or
+transcript-bearing read. Only a verified selected child crosses the existing sparse-history attach
+boundary. A successful projection mutation publishes only a root-scoped invalidation through the
+existing application event bus; renderers then reread Core rather than accepting a second pushed
+Subagent snapshot. The invalidation is an ensured consequence of the Core apply, including the
+ambiguous interval where Core committed immediately before interruption or transport failure.
+Expanded scans pin their first projection revision and restart from page one when any later page
+differs; after bounded repeated mutation they return one single-revision page instead of mixed rows.
+
+Subtree interruption, archive, and permanent deletion treat the runtime response as an observation, not the final
+postcondition. A root interruption gives the runtime cascade a bounded chance to settle, then reads
+only the latest Turn summary for remaining unresolved children and interrupts only `inProgress`
+Turns. An accepted interrupt is followed by bounded polling; typed terminal absence settles
+idempotently. Before archive or deletion, Core durably freezes the complete expected descendant closure under a
+deterministic operation identity. Reconciliation advances that closure in bounded batches and keeps
+settled, unresolved, and failed outcomes distinct across retries. A root success cannot erase an
+unresolved child or convert incomplete discovery into an empty tree. A transport failure after the
+physical request may represent a partial mutation and therefore still reconciles under the same
+operation identity. A physically accepted archive
+does not hide the local root until this closure is complete; an incomplete postcondition remains a
+visible retryable failure bound to the same durable operation identity. User-visible behavior is
+owned by [Codex Subagent Behavior](product-specs/codex-subagent-behavior.md).
+
+The pinned Agent runtime applies the same bounded-resource rule inside the tree: each mailbox admits
+at most 256 messages and 2 MiB, spawn commits only after its initial task is accepted, and completion
+delivery first commits a stable receipt to a bounded SQLite outbox. Mailbox acceptance is not an
+acknowledgement: the receipt becomes delivered only after the parent persists and flushes the same
+item identity. Parent load/resume and a capped backoff loop replay pending receipts, while the outbox
+primary key, parent-history identity check, and bounded input-queue receipt set make restart replay
+idempotent. Pending receipt count, payload size, and delivered tombstone age/count have independent
+garbage-collection bounds. A rejected initial task therefore
+does not leak a nickname, path, registry entry, residency slot, edge, or started notification, while
+an unavailable or evicted parent cannot turn a completion into silent loss.
 
 Core Workspace remains the cold-restart authority for a managed Thread's execution host, cwd,
 worktree path, and writable roots. Resume projects that location into the new app-server generation
@@ -401,6 +438,7 @@ closed; it cannot race through the read-to-dispatch interval on an obsolete host
 Detailed behavior lives in
 [Codex Owner/Follower Streaming](product-specs/codex-thread-owner-follower-streaming.md),
 [Codex Thread Transcript Behavior](product-specs/codex-thread-transcript-behavior.md),
+[Codex Subagent Behavior](product-specs/codex-subagent-behavior.md),
 [Codex Workspace Behavior](product-specs/codex-workspace-behavior.md), and
 [Codex Managed Worktree Lifecycle Behavior](product-specs/codex-managed-worktree-lifecycle-behavior.md).
 
@@ -467,6 +505,8 @@ and [Desktop Notification Behavior](product-specs/desktop-notification-behavior.
 | Repeated Core losses                   | Open bounded circuit and show one app-wide Retry/Restart state                                                                                                                                                                                                                               |
 | Codex app-server session lost          | Reject that session's pending requests, retire its child, then reconnect with one bounded supervisor; never carry pending RPC state into the replacement generation                                                                                                                          |
 | Thread resume/start buffer saturated   | Fail the exact Codex generation and canonically read the Thread after replacement; never apply a later occurrence ahead of a dropped predecessor                                                                                                                                             |
+| Subagent discovery interrupted         | Preserve verified positive descendants and the durable continuation as incomplete; never infer a missing child is Done, and resume only under the matching host/source generation                                                                                                            |
+| Subagent lifecycle partially settles   | Preserve the deterministic expected closure and per-member outcomes, return failed/unresolved members truthfully, and reconcile in bounded batches; root RPC success is not subtree convergence                                                                                              |
 | Worktree worker ingress saturated      | Terminate the exact worker generation, reject its pending operations, and let durable worktree reconciliation recover accepted work; never drop a progress/result message while keeping that worker ready                                                                                    |
 | Main shutdown requested repeatedly     | Close the one process scope idempotently; report finalizer failures and continue later cleanup                                                                                                                                                                                               |
 | Document/Canvas stream gap             | New exact live barrier plus canonical engine sync                                                                                                                                                                                                                                            |
