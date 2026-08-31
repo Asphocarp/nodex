@@ -42,6 +42,9 @@ function buildConfig(
 
 function buildRequirements(overrides?: Partial<ConfigRequirements>): ConfigRequirements {
   return {
+    cliAuthCredentialsStore: null,
+    chatgptBaseUrl: null,
+    additionalDeveloperInstructions: null,
     autoReview: null,
     allowedApprovalPolicies: null,
     allowedApprovalsReviewers: null,
@@ -52,8 +55,10 @@ function buildRequirements(overrides?: Partial<ConfigRequirements>): ConfigRequi
     allowRemoteControl: null,
     allowedWebSearchModes: null,
     allowManagedHooksOnly: null,
+    allowBrowserAndComputerUse: null,
     allowAppshots: null,
     browserUse: null,
+    inAppBrowser: null,
     checkForUpdateOnStartup: null,
     computerUse: null,
     feedback: null,

@@ -52,6 +52,7 @@ function buildThread(name: string | null): CodexCanonicalConversationState["prot
     ephemeral: false,
     section: null,
     sectionEnteredAt: null,
+    projectId: null,
     historyMode: "paginated",
     modelProvider: "openai",
     createdAt: 1,

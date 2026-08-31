@@ -164,6 +164,18 @@ export async function invoke(channel: string, ...args: unknown[]): Promise<unkno
   return transport.invoke(channel, ...args);
 }
 
+export function readCodexSubagentOverview(
+  input: import("../../shared/types").CodexSubagentOverviewReadInput,
+) {
+  return invoke("codex:subagents:overview:read", input);
+}
+
+export function hydrateSelectedCodexSubagent(
+  input: import("../../shared/types").CodexSelectedSubagentHydrateInput,
+) {
+  return invoke("codex:subagents:selected:hydrate", input);
+}
+
 export function searchCodexPersistedHistory(threadId: string, query: string) {
   return invoke("codex:thread:history-search", threadId, query);
 }

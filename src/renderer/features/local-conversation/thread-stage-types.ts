@@ -207,6 +207,8 @@ export interface ThreadOpenSubagentPayload {
   spawnModel: string | null;
   status: ThreadOpenSubagentStatus;
   statusSummary: string | null;
+  /** Directory-verified selected detail interaction eligibility. */
+  canInteract?: boolean;
   showInlineActivity?: boolean;
   diffStats: ThreadSubagentDiffStats | null;
 }

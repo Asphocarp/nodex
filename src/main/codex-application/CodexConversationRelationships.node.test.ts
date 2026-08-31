@@ -8,6 +8,7 @@ import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
 import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules";
 import { CodexApplicationEventHub, type CodexApplicationEvent } from "./CodexApplicationEventHub";
 import {
+  CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_PAGES,
   CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_RESULTS,
   CODEX_CONVERSATION_RELATIONSHIP_MAX_ACTIVE_REPAIRS,
   make,
@@ -342,8 +343,8 @@ it.effect("bounds a 10k-child relationship scan before it can retain every child
     const result = yield* Effect.exit(relationships.refresh("parent"));
 
     assert.isTrue(Exit.isFailure(result));
-    assert.strictEqual(childReads, 2);
-    assert.isTrue(childReads * 200 <= CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_RESULTS + 200);
+    assert.strictEqual(childReads, CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_PAGES);
+    assert.isTrue(childReads * 200 <= CODEX_CONVERSATION_RELATIONSHIP_CHILD_MAX_RESULTS);
     assert.deepEqual(published, []);
     yield* Scope.close(ownerScope, Exit.void);
   }),

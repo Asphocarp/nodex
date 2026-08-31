@@ -53,6 +53,7 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
               ConversationCommands,
               ConversationCommands.of({
                 archive: () => Effect.die("unused"),
+                deleteArchived: () => Effect.die("unused"),
                 unarchive: () => Effect.die("unused"),
                 setMemoryMode: () => Effect.die("unused"),
                 startReview: () => Effect.die("unused"),

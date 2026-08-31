@@ -51,8 +51,10 @@ import type {
   CodexApprovalRequest,
   CodexApprovalKind,
   CodexApprovalResponse,
-  CodexBackgroundSubagentThreadsHydrateInput,
-  CodexSubagentPanelHydrateInput,
+  CodexSubagentOverviewReadInput,
+  CodexSubagentOverviewWindow,
+  CodexSelectedSubagentHydrateInput,
+  CodexSelectedSubagentHydrateResult,
   CodexBackgroundTerminalRow,
   PageRunInTarget,
   CodexCanonicalOptionPickerResponse,
@@ -3854,6 +3856,37 @@ function arePermissionStatesEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function normalizeSelectedSubagentInput(
+  input: CodexSelectedSubagentHydrateInput,
+): CodexSelectedSubagentHydrateInput {
+  return {
+    rootThreadId: input.rootThreadId.trim(),
+    threadId: input.threadId.trim(),
+  };
+}
+
+function selectedSubagentHydrationFailure(
+  input: CodexSelectedSubagentHydrateInput,
+  errorMessage: string,
+  basis?: CodexSelectedSubagentHydrateResult,
+): CodexSelectedSubagentHydrateResult {
+  const normalized = normalizeSelectedSubagentInput(input);
+  return {
+    rootThreadId: normalized.rootThreadId,
+    threadId: normalized.threadId,
+    revision: basis?.revision ?? 0,
+    fidelity: basis?.fidelity ?? "metadata",
+    checkpoint: null,
+    canInteract: false,
+    outcome: "failed",
+    errorMessage,
+  };
+}
+
+function selectedSubagentErrorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof Error ? cause.message : fallback;
+}
+
 export class CodexAppServerManager {
   private connection: CodexConnectionState = INITIAL_CONNECTION;
   private account: CodexAccountSnapshot | null = null;
@@ -3998,7 +4031,13 @@ export class CodexAppServerManager {
     this.isOpenAIFormElicitationsEnabled = options.isOpenAIFormElicitationsEnabled ?? (() => true);
     this.busUnsubscribers.push(
       subscribeCodexEvents((event) => {
-        if (event.type === "dictationState") this.setDictationState(event.state);
+        if (event.type === "dictationState") {
+          this.setDictationState(event.state);
+          return;
+        }
+        if (event.type === "threadDeleted") {
+          this.handleThreadDeleted({ hostId: this.hostId, threadId: event.threadId });
+        }
       }),
       subscribeCodexAppServerMessage("shared-object-updated", (event) => {
         this.handleSharedObjectUpdated(event);
@@ -4531,32 +4570,111 @@ export class CodexAppServerManager {
     })) as boolean;
   }
 
-  async markSubagentThreadOpened(threadId: string): Promise<boolean> {
-    return (await invoke("codex:subagent-thread:opened", threadId)) as boolean;
+  async readSubagentOverview(
+    input: CodexSubagentOverviewReadInput,
+  ): Promise<CodexSubagentOverviewWindow> {
+    return (await invoke("codex:subagents:overview:read", input)) as CodexSubagentOverviewWindow;
   }
 
-  async hydrateBackgroundSubagentThreads(
-    input: CodexBackgroundSubagentThreadsHydrateInput,
-  ): Promise<CodexThreadSummary[]> {
-    const summaries = (await invoke(
-      "codex:thread:background-subagents:hydrate",
-      input,
-    )) as CodexThreadSummary[];
-    for (const summary of summaries) {
-      this.applyThreadSummary(summary);
+  private async requestSelectedSubagentAuthority(
+    input: CodexSelectedSubagentHydrateInput,
+  ): Promise<CodexSelectedSubagentHydrateResult> {
+    const normalized = normalizeSelectedSubagentInput(input);
+    if (!normalized.rootThreadId || !normalized.threadId) {
+      return selectedSubagentHydrationFailure(normalized, "Subagent identity is required");
     }
-    return summaries;
+
+    const result = (await invoke(
+      "codex:subagents:selected:hydrate",
+      normalized,
+    )) as CodexSelectedSubagentHydrateResult;
+    if (
+      result.rootThreadId.trim() !== normalized.rootThreadId ||
+      result.threadId.trim() !== normalized.threadId
+    ) {
+      return selectedSubagentHydrationFailure(
+        normalized,
+        "Selected subagent identity changed while opening",
+        result,
+      );
+    }
+    return {
+      ...result,
+      rootThreadId: normalized.rootThreadId,
+      threadId: normalized.threadId,
+    };
   }
 
-  async hydrateSubagentPanel(input: CodexSubagentPanelHydrateInput): Promise<CodexThreadSummary[]> {
-    const summaries = (await invoke(
-      "codex:thread:subagents-panel:hydrate",
-      input,
-    )) as CodexThreadSummary[];
-    for (const summary of summaries) {
-      this.applyThreadSummary(summary);
+  /** Reads current Main-owned selection authority without attaching or resuming the child. */
+  async refreshSelectedSubagentAuthority(
+    input: CodexSelectedSubagentHydrateInput,
+  ): Promise<CodexSelectedSubagentHydrateResult> {
+    try {
+      return await this.requestSelectedSubagentAuthority(input);
+    } catch (cause) {
+      return selectedSubagentHydrationFailure(
+        input,
+        selectedSubagentErrorMessage(cause, "Could not refresh selected subagent authority"),
+      );
     }
-    return summaries;
+  }
+
+  async hydrateSelectedSubagent(
+    input: CodexSelectedSubagentHydrateInput,
+  ): Promise<CodexSelectedSubagentHydrateResult> {
+    const normalized = normalizeSelectedSubagentInput(input);
+    const hydrated = await this.refreshSelectedSubagentAuthority(normalized);
+    if (hydrated.outcome !== "ready") return hydrated;
+
+    try {
+      const attached = await this.requestThreadStreamResume(normalized.threadId);
+      const applied = this.readConversation(normalized.threadId);
+      const role = this.readConversationStreamRole(normalized.threadId);
+      const attachment = this.readConversationAttachmentState(normalized.threadId);
+      if (
+        !attached ||
+        attached.threadId !== normalized.threadId ||
+        !applied ||
+        applied.threadId !== normalized.threadId ||
+        role === null ||
+        attachment.status !== "attached"
+      ) {
+        return {
+          ...hydrated,
+          canInteract: false,
+          outcome: "unavailable",
+          errorMessage: "This subagent could not attach to this window.",
+        };
+      }
+
+      const revalidated = await this.refreshSelectedSubagentAuthority(normalized);
+      if (revalidated.outcome !== "ready") {
+        return { ...revalidated, canInteract: false };
+      }
+      const revalidatedConversation = this.readConversation(normalized.threadId);
+      const revalidatedRole = this.readConversationStreamRole(normalized.threadId);
+      const revalidatedAttachment = this.readConversationAttachmentState(normalized.threadId);
+      if (
+        !revalidatedConversation ||
+        revalidatedConversation.threadId !== normalized.threadId ||
+        revalidatedRole === null ||
+        revalidatedAttachment.status !== "attached"
+      ) {
+        return {
+          ...revalidated,
+          canInteract: false,
+          outcome: "unavailable",
+          errorMessage: "This subagent detached before it was ready.",
+        };
+      }
+      return revalidated;
+    } catch (cause) {
+      return selectedSubagentHydrationFailure(
+        normalized,
+        selectedSubagentErrorMessage(cause, "Could not attach the selected subagent"),
+        hydrated,
+      );
+    }
   }
 
   requestHistoryPage(
@@ -6872,6 +6990,12 @@ export class CodexAppServerManager {
     const continuation = this.waitForActiveGoalContinuationDelay(threadId)
       .then(async () => {
         if (!this.canContinueActiveThreadGoalAsOwner(threadId)) return;
+        const subagents = await this.readSubagentOverview({
+          rootThreadId: threadId,
+          mode: "initial",
+        });
+        if (subagents.completeness !== "complete" || subagents.active.knownCount > 0) return;
+        if (!this.canContinueActiveThreadGoalAsOwner(threadId)) return;
         await this.ownerAppServerRequestClient.setThreadGoal(threadId, {
           threadId,
           status: "active",
@@ -8626,18 +8750,9 @@ export class CodexAppServerManager {
             this.streamState.setStreaming(effect.threadId, true);
             continue;
           }
-          if (effect.type !== "hydrateCollabThreads") continue;
-          void this.hydrateBackgroundSubagentThreads({
-            rootThreadId: payload.threadId,
-            threadIds: [...effect.receiverThreadIds],
-            includeTail: true,
-          }).catch((error) => {
-            console.warn("Failed to hydrate collaboration receiver threads", {
-              threadId: payload.threadId,
-              receiverThreadIds: effect.receiverThreadIds,
-              error,
-            });
-          });
+          // Collaboration receiver metadata invalidates the bounded overview projection; it must
+          // never make an owner lifecycle notification hydrate child transcript history.
+          if (effect.type === "hydrateCollabThreads") continue;
         }
         this.applyOwnerCanonicalHiddenTurns(payload.threadId, projection.hiddenTurns);
         return {
@@ -11282,18 +11397,8 @@ export function requestLocalConversationResume(
   return getDefaultLocalConversationManager().requestThreadStreamResume(threadId);
 }
 
-export function markLocalSubagentThreadOpened(threadId: string): Promise<boolean> {
-  return getDefaultLocalConversationManager().markSubagentThreadOpened(threadId);
-}
-
 export function markLocalConversationAsRead(threadId: string): Promise<void> {
   return getDefaultLocalConversationManager().markConversationAsRead(threadId);
-}
-
-export function hydrateLocalBackgroundSubagentThreads(
-  input: CodexBackgroundSubagentThreadsHydrateInput,
-): Promise<CodexThreadSummary[]> {
-  return getDefaultLocalConversationManager().hydrateBackgroundSubagentThreads(input);
 }
 
 export function setLocalConversationThreadViewActive(
@@ -11804,17 +11909,17 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     async (threadId: string) => manager.requestThreadStreamSnapshot(threadId),
     [manager],
   );
-  const markSubagentThreadOpened = useCallback(
-    async (threadId: string) => manager.markSubagentThreadOpened(threadId),
+  const readSubagentOverview = useCallback(
+    async (input: CodexSubagentOverviewReadInput) => manager.readSubagentOverview(input),
     [manager],
   );
-  const hydrateBackgroundSubagentThreads = useCallback(
-    async (input: CodexBackgroundSubagentThreadsHydrateInput) =>
-      manager.hydrateBackgroundSubagentThreads(input),
+  const hydrateSelectedSubagent = useCallback(
+    async (input: CodexSelectedSubagentHydrateInput) => manager.hydrateSelectedSubagent(input),
     [manager],
   );
-  const hydrateSubagentPanel = useCallback(
-    async (input: CodexSubagentPanelHydrateInput) => manager.hydrateSubagentPanel(input),
+  const refreshSelectedSubagentAuthority = useCallback(
+    async (input: CodexSelectedSubagentHydrateInput) =>
+      manager.refreshSelectedSubagentAuthority(input),
     [manager],
   );
 
@@ -12237,9 +12342,9 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     loadModels,
     listCollaborationModes,
     requestThreadStreamSnapshot,
-    markSubagentThreadOpened,
-    hydrateBackgroundSubagentThreads,
-    hydrateSubagentPanel,
+    readSubagentOverview,
+    hydrateSelectedSubagent,
+    refreshSelectedSubagentAuthority,
     startThreadForSession,
     startSideChat,
     discardSideChat,

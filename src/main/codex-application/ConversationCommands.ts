@@ -22,6 +22,7 @@ import {
   type CodexServerRequestResponseProjectionError,
 } from "./CodexServerRequestResponses";
 import { type CodexThreadGoalError, CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
+import { CodexSubagentDirectory, CodexSubagentDirectoryError } from "./CodexSubagentDirectory";
 import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 type BackgroundTerminal =
@@ -32,12 +33,19 @@ type ConversationCommandsError =
   | CodexConversationArchiveError
   | CodexConversationProjectionError
   | CodexServerRequestResponseProjectionError
+  | CodexSubagentDirectoryError
   | CodexThreadGoalError;
+
+const INTERRUPT_TOTAL_DEADLINE_MS = 5_000;
+const INTERRUPT_SUBTREE_HEADROOM_MS = 250;
 
 export class ConversationCommands extends Context.Service<
   ConversationCommands,
   {
     readonly archive: (threadId: string) => Effect.Effect<boolean, CodexConversationArchiveError>;
+    readonly deleteArchived: (
+      threadId: string,
+    ) => Effect.Effect<boolean, CodexConversationArchiveError>;
     readonly unarchive: (
       threadId: string,
     ) => Effect.Effect<CodexThreadSummary | null, CodexConversationArchiveError>;
@@ -85,6 +93,7 @@ export const live: Layer.Layer<
   | CodexConversationProjection
   | CodexGateway
   | CodexServerRequestResponses
+  | CodexSubagentDirectory
   | CodexThreadGoalRuntime
   | ConversationEntityMap
 > = Layer.effect(
@@ -95,6 +104,7 @@ export const live: Layer.Layer<
     const conversations = yield* ConversationEntityMap;
     const serverRequestResponses = yield* CodexServerRequestResponses;
     const projection = yield* CodexConversationProjection;
+    const subagents = yield* CodexSubagentDirectory;
     const threadGoals = yield* CodexThreadGoalRuntime;
 
     const runSerial = <A, E>(threadId: string, operation: Effect.Effect<A, E>) =>
@@ -136,6 +146,8 @@ export const live: Layer.Layer<
     const interruptInLane = (
       threadId: string,
       turnId?: string,
+      settleSubtree = true,
+      subtreeDeadlineAtMs?: number,
     ): Effect.Effect<boolean, ConversationCommandsError> =>
       Effect.gen(function* () {
         const resolvedTurnId = yield* projection.resolveInterruptTurn(threadId, turnId);
@@ -158,6 +170,25 @@ export const live: Layer.Layer<
               ),
             ),
           );
+        if (settleSubtree) {
+          const subtree = yield* subagents.settleInterruptedSubtree(
+            threadId,
+            subtreeDeadlineAtMs === undefined ? undefined : { deadlineAtMs: subtreeDeadlineAtMs },
+          );
+          if (
+            !subtree.discoveryComplete ||
+            subtree.failed.length > 0 ||
+            subtree.unresolvedThreadIds.length > 0
+          ) {
+            return yield* new CodexSubagentDirectoryError({
+              operation: "lifecycle",
+              rootThreadId: threadId,
+              cause: new Error(
+                `Subagent interruption left ${subtree.failed.length} failed, ${subtree.unresolvedThreadIds.length} unresolved descendants, and discovery ${subtree.discoveryComplete ? "complete" : "incomplete"}`,
+              ),
+            });
+          }
+        }
         return true;
       });
 
@@ -165,6 +196,10 @@ export const live: Layer.Layer<
       archive: (threadId) =>
         runSerial(threadId, archive.archive(threadId)).pipe(
           Effect.tap((archived) => (archived ? conversations.retire(threadId) : Effect.void)),
+        ),
+      deleteArchived: (threadId) =>
+        runSerial(threadId, archive.deleteArchived(threadId)).pipe(
+          Effect.tap((deleted) => (deleted ? conversations.retire(threadId) : Effect.void)),
         ),
       unarchive: (threadId) => runSerial(threadId, archive.unarchive(threadId)),
       setMemoryMode: (threadId, mode) =>
@@ -184,7 +219,31 @@ export const live: Layer.Layer<
             processId,
           })
           .pipe(Effect.map((response) => response.terminated)),
-      interrupt: (threadId, turnId) => runSerial(threadId, interruptInLane(threadId, turnId)),
+      interrupt: (threadId, turnId) =>
+        Effect.gen(function* () {
+          const startedAtMs = yield* Clock.currentTimeMillis;
+          return yield* runSerial(
+            threadId,
+            interruptInLane(
+              threadId,
+              turnId,
+              true,
+              startedAtMs + INTERRUPT_TOTAL_DEADLINE_MS - INTERRUPT_SUBTREE_HEADROOM_MS,
+            ),
+          );
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: `${INTERRUPT_TOTAL_DEADLINE_MS} millis`,
+            orElse: () =>
+              Effect.fail(
+                new CodexSubagentDirectoryError({
+                  operation: "lifecycle",
+                  rootThreadId: threadId,
+                  cause: new Error("Thread and Subagent interruption exceeded five seconds"),
+                }),
+              ),
+          }),
+        ),
       cleanBackgroundTerminals: (threadId) =>
         runSerial(
           threadId,
@@ -192,7 +251,7 @@ export const live: Layer.Layer<
             Effect.flatMap((turnIds) => {
               if (turnIds === null) return Effect.succeed(false);
               if (turnIds.length === 0) return Effect.succeed(true);
-              return Effect.forEach(turnIds, (turnId) => interruptInLane(threadId, turnId), {
+              return Effect.forEach(turnIds, (turnId) => interruptInLane(threadId, turnId, false), {
                 discard: true,
               }).pipe(Effect.as(true));
             }),

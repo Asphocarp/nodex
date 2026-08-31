@@ -872,15 +872,11 @@ describe("createThreadStageActions settings routing", () => {
     );
   });
 
-  test("passes subagent context to the shell opener without hydrating inline", async () => {
+  test("passes subagent context to the shell opener without reading child data", async () => {
     const calls: string[] = [];
     const input = buildInput({
       activeThreadId: "thread-parent",
       codexControl: {
-        hydrateBackgroundSubagentThreads: async (input: { threadIds: string[] }) => {
-          calls.push(`hydrate:${input.threadIds.join(",")}`);
-          return [];
-        },
         requestThreadStreamSnapshot: async (threadId: string) => {
           calls.push(`snapshot:${threadId}`);
           return null;
@@ -911,10 +907,6 @@ describe("createThreadStageActions settings routing", () => {
     const calls: string[] = [];
     const input = buildInput({
       codexControl: {
-        hydrateBackgroundSubagentThreads: async (input: { threadIds: string[] }) => {
-          calls.push(`hydrate:${input.threadIds.join(",")}`);
-          return [];
-        },
         requestThreadStreamSnapshot: async (threadId: string) => {
           calls.push(`snapshot:${threadId}`);
           return null;

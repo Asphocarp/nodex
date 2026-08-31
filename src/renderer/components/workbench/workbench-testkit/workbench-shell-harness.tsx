@@ -20,8 +20,11 @@ import { WorkbenchLayoutSnapshotSchema } from "../../../../shared/schemas/workbe
 import type {
   CodexAutomationInboxItem,
   CodexAutomationRunsInboxResponse,
-  CodexBackgroundSubagentThreadsHydrateInput,
-  CodexSubagentPanelHydrateInput,
+  CodexEvent,
+  CodexSubagentOverviewReadInput,
+  CodexSubagentOverviewWindow,
+  CodexSelectedSubagentHydrateInput,
+  CodexSelectedSubagentHydrateResult,
   CodexHostMessage,
   CodexModelOption,
   CodexScheduledAutomation,
@@ -152,8 +155,15 @@ export let startThreadForSessionResult: CodexThreadStartForSessionResult = {
 };
 export let requestThreadStreamSnapshotCalls: string[] = [];
 export let requestThreadStreamSnapshotImpl: ((threadId: string) => Promise<unknown>) | null = null;
-export let hydrateBackgroundSubagentThreadsCalls: CodexBackgroundSubagentThreadsHydrateInput[] = [];
-export let hydrateSubagentPanelCalls: CodexSubagentPanelHydrateInput[] = [];
+export let readSubagentOverviewCalls: CodexSubagentOverviewReadInput[] = [];
+export let hydrateSelectedSubagentCalls: CodexSelectedSubagentHydrateInput[] = [];
+export let hydrateSelectedSubagentImpl:
+  | ((input: CodexSelectedSubagentHydrateInput) => Promise<CodexSelectedSubagentHydrateResult>)
+  | null = null;
+export let refreshSelectedSubagentAuthorityCalls: CodexSelectedSubagentHydrateInput[] = [];
+export let refreshSelectedSubagentAuthorityImpl:
+  | ((input: CodexSelectedSubagentHydrateInput) => Promise<CodexSelectedSubagentHydrateResult>)
+  | null = null;
 export let removeQueuedFollowUpCalls: unknown[][] = [];
 export let reorderQueuedFollowUpsCalls: unknown[][] = [];
 export let sendQueuedFollowUpNowCalls: unknown[][] = [];
@@ -172,6 +182,7 @@ export let sideChatConversationProjectId: string | null = "alpha";
 export let mockThreadStartProgress: unknown = null;
 export let mockConversationHasVisibleTurn = true;
 export let codexHostMessageListener: ((message: CodexHostMessage) => void) | null = null;
+const codexEventListeners = new Set<(event: CodexEvent) => void>();
 export let pendingWorktreeWarningListener:
   | ((event: CodexPendingWorktreeWarningEvent) => void)
   | null = null;
@@ -183,6 +194,10 @@ export const NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
 export const TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
 
 export type TerminalEventListenerMap = Record<string, (payload: unknown) => void>;
+
+export function emitCodexEvent(event: CodexEvent): void {
+  for (const listener of codexEventListeners) listener(event);
+}
 
 export const mockCodexControl = {
   availableModels: DEFAULT_TEST_CODEX_MODELS,
@@ -272,17 +287,49 @@ export const mockCodexControl = {
     }
     return null;
   },
-  markSubagentThreadOpened: async () => true,
-  hydrateBackgroundSubagentThreads: async (input: CodexBackgroundSubagentThreadsHydrateInput) => {
-    hydrateBackgroundSubagentThreadsCalls.push(input);
-    return [];
+  readSubagentOverview: async (
+    input: CodexSubagentOverviewReadInput,
+  ): Promise<CodexSubagentOverviewWindow> => {
+    readSubagentOverviewCalls.push(input);
+    return {
+      rootThreadId: input.rootThreadId,
+      revision: 1,
+      generation: 1,
+      completeness: "complete",
+      active: { rows: [], knownCount: 0, totalCount: 0, continuation: null },
+      done: { rows: [], knownCount: 0, totalCount: 0, continuation: null },
+    };
   },
-  hydrateSubagentPanel: async (input: CodexSubagentPanelHydrateInput) => {
-    hydrateSubagentPanelCalls.push(input);
-    return (input.threadIds ?? []).flatMap((threadId) => {
-      const conversation = sideChatConversations[threadId];
-      return conversation ? [conversation as unknown as CodexThreadDetail] : [];
-    });
+  hydrateSelectedSubagent: async (input: CodexSelectedSubagentHydrateInput) => {
+    hydrateSelectedSubagentCalls.push(input);
+    if (hydrateSelectedSubagentImpl) return hydrateSelectedSubagentImpl(input);
+    return {
+      rootThreadId: input.rootThreadId,
+      threadId: input.threadId,
+      revision: 1,
+      fidelity: "attachedSparse" as const,
+      checkpoint: "test-checkpoint",
+      canInteract: true,
+      outcome: "ready" as const,
+      errorMessage: null,
+    };
+  },
+  refreshSelectedSubagentAuthority: async (input: CodexSelectedSubagentHydrateInput) => {
+    refreshSelectedSubagentAuthorityCalls.push(input);
+    if (refreshSelectedSubagentAuthorityImpl) {
+      return refreshSelectedSubagentAuthorityImpl(input);
+    }
+    if (hydrateSelectedSubagentImpl) return hydrateSelectedSubagentImpl(input);
+    return {
+      rootThreadId: input.rootThreadId,
+      threadId: input.threadId,
+      revision: 1,
+      fidelity: "attachedSparse" as const,
+      checkpoint: "test-checkpoint",
+      canInteract: true,
+      outcome: "ready" as const,
+      errorMessage: null,
+    };
   },
   removeQueuedFollowUp: async (threadId: string, followUpId: string) => {
     removeQueuedFollowUpCalls.push([threadId, followUpId]);
@@ -788,6 +835,10 @@ vi.mock("@/lib/api", () => {
     subscribeCommandKeymapChanges: () => () => undefined,
     subscribeProjectChanges: () => () => undefined,
     subscribeProjectSessionChanges: () => () => undefined,
+    subscribeCodexEvents: (listener: (event: CodexEvent) => void) => {
+      codexEventListeners.add(listener);
+      return () => codexEventListeners.delete(listener);
+    },
     subscribeCodexHostMessages: (listener: (message: CodexHostMessage) => void) => {
       codexHostMessageListener = listener;
       return () => {
@@ -1487,6 +1538,19 @@ vi.mock("@/features/local-conversation", () => ({
     if (activeThreadId) {
       propsByThreadId[activeThreadId] = props;
     }
+    useEffect(
+      () => () => {
+        if (!activeThreadId) return;
+        const current = (
+          globalThis as {
+            __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
+          }
+        ).__mockConnectedThreadStagePropsByThreadId;
+        if (current?.[activeThreadId] !== props) return;
+        delete current[activeThreadId];
+      },
+      [activeThreadId, props],
+    );
     const summary = props.activeThreadSummary as
       | { threadName?: string | null; threadPreview?: string | null }
       | null
@@ -3905,8 +3969,11 @@ beforeEach(() => {
   };
   requestThreadStreamSnapshotCalls = [];
   requestThreadStreamSnapshotImpl = null;
-  hydrateBackgroundSubagentThreadsCalls = [];
-  hydrateSubagentPanelCalls = [];
+  readSubagentOverviewCalls = [];
+  hydrateSelectedSubagentCalls = [];
+  hydrateSelectedSubagentImpl = null;
+  refreshSelectedSubagentAuthorityCalls = [];
+  refreshSelectedSubagentAuthorityImpl = null;
   removeQueuedFollowUpCalls = [];
   reorderQueuedFollowUpsCalls = [];
   sendQueuedFollowUpNowCalls = [];
@@ -3925,6 +3992,7 @@ beforeEach(() => {
   mockThreadStartProgress = null;
   mockConversationHasVisibleTurn = true;
   codexHostMessageListener = null;
+  codexEventListeners.clear();
   pendingWorktreeWarningListener = null;
   mockInvokeImpl = null;
   requestPageCreateFromContextMock.mockReset();
@@ -4309,14 +4377,14 @@ export function setRequestThreadStreamSnapshotImpl(
   requestThreadStreamSnapshotImpl = value;
 }
 
-export function setHydrateBackgroundSubagentThreadsCalls(
-  value: typeof hydrateBackgroundSubagentThreadsCalls,
-): void {
-  hydrateBackgroundSubagentThreadsCalls = value;
+export function setHydrateSelectedSubagentImpl(value: typeof hydrateSelectedSubagentImpl): void {
+  hydrateSelectedSubagentImpl = value;
 }
 
-export function setHydrateSubagentPanelCalls(value: typeof hydrateSubagentPanelCalls): void {
-  hydrateSubagentPanelCalls = value;
+export function setRefreshSelectedSubagentAuthorityImpl(
+  value: typeof refreshSelectedSubagentAuthorityImpl,
+): void {
+  refreshSelectedSubagentAuthorityImpl = value;
 }
 
 export function setRemoveQueuedFollowUpCalls(value: typeof removeQueuedFollowUpCalls): void {

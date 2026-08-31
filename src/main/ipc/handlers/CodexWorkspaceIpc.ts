@@ -25,7 +25,7 @@ import { CodexSessionThreadLaunch } from "../../codex-application/CodexSessionTh
 import { CodexSidebarSyncRuntime } from "../../codex-application/CodexSidebarSyncRuntime";
 import { CodexSideChatCommands } from "../../codex-application/CodexSideChatCommands";
 import { CodexStructuredThreadTitle } from "../../codex-application/CodexStructuredThreadTitle";
-import { CodexSubagentCatalog } from "../../codex-application/CodexSubagentCatalog";
+import { CodexSubagentDirectory } from "../../codex-application/CodexSubagentDirectory";
 import { CodexThreadCatalog } from "../../codex-application/CodexThreadCatalog";
 import { CodexThreadGoalRuntime } from "../../codex-application/CodexThreadGoalRuntime";
 import { CodexThreadReadState } from "../../codex-application/CodexThreadReadState";
@@ -59,8 +59,6 @@ import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import type { IpcApi } from "../../../shared/ipc-api";
 import type {
-  CodexBackgroundSubagentThreadsHydrateInput,
-  CodexSubagentPanelHydrateInput,
   CodexConversationThreadSettingsPatch,
   CodexSideChatStartInput,
   CodexThreadGoalSetActionInput,
@@ -135,7 +133,7 @@ export const live = Layer.effectDiscard(
     const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
     const structuredThreadTitle = yield* CodexStructuredThreadTitle;
     const backgroundProcesses = yield* CodexBackgroundProcesses;
-    const subagentCatalog = yield* CodexSubagentCatalog;
+    const subagentDirectory = yield* CodexSubagentDirectory;
     const serverRequestResponses = yield* CodexServerRequestResponses;
     const turnCommands = yield* CodexTurnCommands;
     const sideChatCommands = yield* CodexSideChatCommands;
@@ -612,38 +610,18 @@ export const live = Layer.effectDiscard(
       ),
     );
 
-    registerEffectHandle(
-      "codex:thread:background-subagents:hydrate",
-      (_, input: CodexBackgroundSubagentThreadsHydrateInput) =>
-        subagentCatalog.hydrateBackground(input).pipe(
-          Effect.map((summaries) => [...summaries]),
+    registerEffectHandle("codex:subagents:overview:read", (_, input) =>
+      subagentDirectory
+        .readOverview(input)
+        .pipe(
           Effect.mapError(
-            (cause) =>
-              new CodexIpcError({
-                operation: "codex:thread:background-subagents:hydrate",
-                cause,
-              }),
+            (cause) => new CodexIpcError({ operation: "codex:subagents:overview:read", cause }),
           ),
         ),
     );
 
-    registerEffectHandle(
-      "codex:thread:subagents-panel:hydrate",
-      (_, input: CodexSubagentPanelHydrateInput) =>
-        subagentCatalog.hydratePanel(input).pipe(
-          Effect.map((summaries) => [...summaries]),
-          Effect.mapError(
-            (cause) =>
-              new CodexIpcError({
-                operation: "codex:thread:subagents-panel:hydrate",
-                cause,
-              }),
-          ),
-        ),
-    );
-
-    registerEffectHandle("codex:subagent-thread:opened", (_, threadId: string) =>
-      subagentCatalog.open(threadId),
+    registerEffectHandle("codex:subagents:selected:hydrate", (_, input) =>
+      subagentDirectory.hydrateSelected(input),
     );
 
     registerEffectHandle("codex:thread:resume-buffer:release", (_, threadId: string) =>
@@ -749,6 +727,16 @@ export const live = Layer.effectDiscard(
         .pipe(
           Effect.mapError(
             (cause) => new CodexIpcError({ operation: "codex:thread:archive", cause }),
+          ),
+        ),
+    );
+
+    registerEffectHandle("codex:thread:delete-archived", (_, threadId: string) =>
+      conversationCommands
+        .deleteArchived(threadId)
+        .pipe(
+          Effect.mapError(
+            (cause) => new CodexIpcError({ operation: "codex:thread:delete-archived", cause }),
           ),
         ),
     );

@@ -49,6 +49,7 @@ const protocolThread = (threadId: string): Thread => ({
   ephemeral: false,
   section: null,
   sectionEnteredAt: null,
+  projectId: null,
   historyMode: "paginated",
   modelProvider: "openai",
   createdAt: 100,
@@ -265,7 +266,6 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
         directoryFidelities.push(input.fidelity);
         return conversations.runCommand(parentThreadId, Effect.succeed(directoryEntry));
       },
-      descendants: () => Effect.die("unused"),
       acceptRollbackResult: () => Effect.die("unused"),
       acceptImportResult: () => Effect.die("unused"),
       acceptForkResult: () => Effect.die("unused"),

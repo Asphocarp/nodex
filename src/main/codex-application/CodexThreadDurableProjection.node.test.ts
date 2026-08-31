@@ -64,6 +64,7 @@ const appThread = (turns: readonly Turn[]): Thread => ({
   ephemeral: false,
   section: null,
   sectionEnteredAt: null,
+  projectId: null,
   historyMode: "paginated",
   modelProvider: "openai",
   createdAt: 1,
@@ -168,6 +169,94 @@ it.effect("serially commits archive and delete observations before scheduling si
   }),
 );
 
+it.effect("invalidates the durable root after deleting a nested Subagent", () =>
+  Effect.gen(function* () {
+    const threads = new Map<string, CoreThread>([
+      ["root-a", coreThread({ thread_id: "root-a", thread_name: "Root" })],
+      [
+        "child-a",
+        coreThread({
+          thread_id: "child-a",
+          parent_thread_id: "root-a",
+          thread_source: "subAgentThreadSpawn",
+        }),
+      ],
+      [
+        "grandchild-a",
+        coreThread({
+          thread_id: "grandchild-a",
+          parent_thread_id: "child-a",
+          thread_source: "subAgentThreadSpawn",
+        }),
+      ],
+    ]);
+    const events: unknown[] = [];
+    const workspace: CoreModuleClients["workspace"] = {
+      read: (input) =>
+        Effect.sync(() => {
+          if (input.kind !== "thread") throw new Error(`Unexpected read ${input.kind}`);
+          const thread = threads.get(input.thread_id);
+          if (!thread) throw new Error(`Missing fixture Thread ${input.thread_id}`);
+          return { value: { kind: "thread", thread } } as never;
+        }),
+      apply: (input) =>
+        Effect.sync(() => {
+          if (input.intent.kind === "delete_thread") threads.delete(input.intent.thread_id);
+          return {} as never;
+        }),
+    };
+    const service = yield* make.pipe(
+      Effect.provideService(
+        CodexApplicationEventHub,
+        CodexApplicationEventHub.of({
+          events: Stream.empty,
+          publish: (event) => events.push(event),
+        }),
+      ),
+      Effect.provideService(
+        CodexConversationProjection,
+        CodexConversationProjection.of({} as CodexConversationProjection["Service"]),
+      ),
+      Effect.provideService(
+        CodexSidebarSyncRuntime,
+        CodexSidebarSyncRuntime.of({
+          scheduleNotification: () => undefined,
+        } as unknown as CodexSidebarSyncRuntime["Service"]),
+      ),
+      Effect.provideService(
+        ConversationEntityMap,
+        ConversationEntityMap.of({
+          current: () => null,
+        } as unknown as ConversationEntityMap["Service"]),
+      ),
+      Effect.provideService(
+        CoreModules,
+        CoreModules.of({ workspace } as unknown as CoreModuleClients),
+      ),
+    );
+
+    yield* service.observe({
+      hostId: "local",
+      generation: 1,
+      occurrenceId: "local:1:inbox-a:43",
+      occurrenceToken: 43,
+      notification: { method: "thread/deleted", params: { threadId: "grandchild-a" } },
+    });
+
+    assert.isFalse(threads.has("grandchild-a"));
+    assert.deepEqual(
+      events.filter((event) => (event as { kind?: unknown }).kind === "codex").slice(-2),
+      [
+        { kind: "codex", value: { type: "threadDeleted", threadId: "grandchild-a" } },
+        {
+          kind: "codex",
+          value: { type: "subagentOverviewInvalidated", rootThreadId: "root-a" },
+        },
+      ],
+    );
+  }),
+);
+
 it.effect("never treats thread/started as a history transport", () =>
   Effect.gen(function* () {
     const stored = coreThread();
@@ -215,6 +304,7 @@ it.effect("never treats thread/started as a history transport", () =>
         text: "must not become resident",
         phase: null,
         memoryCitation: null,
+        delivery: null,
       })),
       status: "completed",
       error: null,
@@ -238,6 +328,7 @@ it.effect("never treats thread/started as a history transport", () =>
     assert.lengthOf(hydrated, 1);
     assert.deepEqual(hydrated[0]?.canonical.turns, []);
     assert.strictEqual(hydrated[0]?.pagination.loadedTurnCount, 0);
-    assert.isTrue(hydrated[0]?.pagination.hasLoadedOldest);
+    assert.isFalse(hydrated[0]?.pagination.hasLoadedOldest);
+    assert.strictEqual(hydrated[0]?.pagination.itemsView, "notLoaded");
   }),
 );

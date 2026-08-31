@@ -30,6 +30,7 @@ const thread: Thread = {
   ephemeral: false,
   section: null,
   sectionEnteredAt: null,
+  projectId: null,
   historyMode: "paginated",
   modelProvider: "openai",
   createdAt: 1,
@@ -226,6 +227,7 @@ it("invalidates a stale item-window digest before hashing live text and command 
       text: "",
       phase: null,
       memoryCitation: null,
+      delivery: null,
     } satisfies Extract<ThreadItem, { type: "agentMessage" }>;
     const initialState = hydratedState([
       { ...completedTurn("turn-live"), items: [agentItem, commandItem("command-live")] },
@@ -281,6 +283,7 @@ it("bounds cumulative live deltas in canonical state, snapshots, and dormant rep
         text: "",
         phase: null,
         memoryCitation: null,
+        delivery: null,
       },
     ],
   };
@@ -344,6 +347,7 @@ it("prevents a terminal item payload from restoring oversized live output", () =
         text: "",
         phase: null,
         memoryCitation: null,
+        delivery: null,
       },
     ],
   };
@@ -363,6 +367,7 @@ it("prevents a terminal item payload from restoring oversized live output", () =
           text: "z".repeat(CODEX_LIVE_TURN_MAX_APPROXIMATE_BYTES + 1_024),
           phase: null,
           memoryCitation: null,
+          delivery: null,
         },
         completedAtMs: 12,
       },

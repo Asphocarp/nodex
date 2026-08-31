@@ -1,7 +1,6 @@
 import type { Thread, ThreadForkResponse, Turn } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
-import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -12,7 +11,6 @@ import {
   createCodexCanonicalHydratedConversationState,
   createCodexCanonicalWorkspacePermissionContext,
 } from "../../shared/codex-conversation-state/codex-conversation-state";
-import { cappedApproximateValueBytes } from "../../shared/codex-bounded-value-size";
 import type { CodexHistoryTurnItemsPagination } from "../../shared/codex-conversation-state/codex-history-topology";
 import { extractCodexThreadSubagentMetadata } from "../../shared/codex-subagent-metadata";
 import type {
@@ -64,23 +62,6 @@ export type CodexThreadDirectoryResolveFidelity = Exclude<
   "materialized"
 >;
 
-/**
- * Directory discovery is a metadata convenience, never a transcript transport. These limits
- * deliberately fail closed: a panel must retry a bounded query rather than retain every child
- * ever created beneath a long-lived root Thread.
- */
-export const CODEX_SUBAGENT_DISCOVERY_PAGE_SIZE = 200;
-export const CODEX_SUBAGENT_DISCOVERY_MAX_PAGES = 10;
-export const CODEX_SUBAGENT_DISCOVERY_MAX_RESULTS = 256;
-export const CODEX_SUBAGENT_DISCOVERY_MAX_PAGE_BYTES = 8 * 1024 * 1024;
-export const CODEX_SUBAGENT_DISCOVERY_MAX_RESULT_BYTES = 4 * 1024 * 1024;
-export const CODEX_SUBAGENT_DISCOVERY_MAX_REQUEST_IDS = 64;
-export const CODEX_SUBAGENT_TAIL_HYDRATION_MAX_RESULTS = 16;
-export const CODEX_SUBAGENT_TAIL_HYDRATION_MAX_RESULT_BYTES = 16 * 1024 * 1024;
-export const CODEX_SUBAGENT_DISCOVERY_PAGE_TIMEOUT_MS = 10_000;
-export const CODEX_SUBAGENT_DISCOVERY_SCAN_DEADLINE_MS = 30_000;
-const CODEX_SUBAGENT_LINEAGE_MAX_DEPTH = 128;
-
 export interface CodexThreadDirectoryEntry {
   readonly fidelity: CodexThreadDirectoryFidelity;
   /** Persisted history contract observed from app-server, when this read reached app-server. */
@@ -94,7 +75,7 @@ export interface CodexThreadDirectoryEntry {
 export class CodexThreadDirectoryError extends Schema.TaggedError<CodexThreadDirectoryError>()(
   "CodexThreadDirectoryError",
   {
-    operation: Schema.Literals(["read", "materialize", "discover"]),
+    operation: Schema.Literals(["read", "materialize"]),
     threadId: Schema.String,
     cause: Schema.Defect(),
   },
@@ -111,6 +92,11 @@ export class CodexThreadDirectory extends Context.Service<
       readonly threadId: string;
       readonly fidelity: CodexThreadDirectoryResolveFidelity;
       readonly hostId?: string;
+      /** Keeps speculative relationship hydration off interactive and notification lanes. */
+      readonly metadataScheduling?: {
+        readonly conversationId: string;
+        readonly widgetId: string;
+      };
     }) => Effect.Effect<CodexThreadDirectoryEntry | null, CodexThreadDirectoryError>;
     /**
      * Resumes one Thread without acquiring its non-reentrant causal lane. Only callers already
@@ -120,11 +106,6 @@ export class CodexThreadDirectory extends Context.Service<
       readonly threadId: string;
       readonly hostId?: string;
     }) => Effect.Effect<CodexThreadDirectoryEntry | null, CodexThreadDirectoryError>;
-    readonly descendants: (input: {
-      readonly rootThreadId: string;
-      readonly threadIds?: readonly string[];
-      readonly fidelity: Exclude<CodexThreadDirectoryResolveFidelity, "live">;
-    }) => Effect.Effect<readonly CodexThreadDirectoryEntry[], CodexThreadDirectoryError>;
     /**
      * Accepts a Thread returned by a protocol mutation while the caller owns the Thread lane.
      * The Directory commits durable identity and refreshes the canonical aggregate as one
@@ -202,28 +183,6 @@ interface DurableThread {
   readonly raw: CoreThread;
   readonly thread: DesktopProjectWorkspaceThread;
 }
-
-interface DiscoveredSubagentRecord {
-  readonly record: Record<string, unknown>;
-  readonly parentThreadId: string;
-}
-
-const normalizeIds = (
-  threadIds: readonly string[],
-): { readonly ids: readonly string[]; readonly overflowed: boolean } => {
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  for (const rawThreadId of threadIds) {
-    const threadId = rawThreadId.trim();
-    if (!threadId || seen.has(threadId)) continue;
-    if (ids.length >= CODEX_SUBAGENT_DISCOVERY_MAX_REQUEST_IDS) {
-      return { ids, overflowed: true };
-    }
-    seen.add(threadId);
-    ids.push(threadId);
-  }
-  return { ids, overflowed: false };
-};
 
 const normalizeTurn = (turn: Turn): Turn => ({
   ...turn,
@@ -570,6 +529,7 @@ export const make: Effect.Effect<
     threadId: string,
     fidelity: Exclude<CodexThreadDirectoryResolveFidelity, "durable">,
     hostId: string,
+    metadataScheduling?: { readonly conversationId: string; readonly widgetId: string },
   ): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
     const readMetadata = (capability: CodexAppServerCapabilitySnapshot) =>
       gateway
@@ -577,7 +537,18 @@ export const make: Effect.Effect<
           hostId,
           "thread/read",
           { threadId, includeTurns: false },
-          codexGatewayGenerationFence(capability),
+          {
+            ...codexGatewayGenerationFence(capability),
+            ...(metadataScheduling
+              ? {
+                  priority: "background" as const,
+                  source: "collab_hydration" as const,
+                  conversationId: metadataScheduling.conversationId,
+                  widgetId: metadataScheduling.widgetId,
+                  coalesce: true,
+                }
+              : {}),
+          },
         )
         .pipe(Effect.mapError((cause) => error("read", threadId, cause)));
     if (fidelity === "live") {
@@ -761,6 +732,10 @@ export const make: Effect.Effect<
     readonly threadId: string;
     readonly fidelity: CodexThreadDirectoryResolveFidelity;
     readonly hostId?: string;
+    readonly metadataScheduling?: {
+      readonly conversationId: string;
+      readonly widgetId: string;
+    };
   }): Effect.fn.Return<CodexThreadDirectoryEntry | null, CodexThreadDirectoryError> {
     const threadId = input.threadId.trim();
     if (!threadId) return null;
@@ -769,340 +744,16 @@ export const make: Effect.Effect<
     const hostId = durable?.thread.executionHostId ?? input.hostId?.trim();
     if (!hostId) return null;
     if (input.fidelity === "durable") {
-      return yield* conversations.runCommand(threadId, readRemote(threadId, "metadata", hostId));
-    }
-    return yield* conversations.runCommand(threadId, readRemote(threadId, input.fidelity, hostId));
-  });
-
-  const discover = Effect.fn("CodexThreadDirectory.discover")(function* (
-    root: DurableThread,
-  ): Effect.fn.Return<readonly CodexThreadDirectoryEntry[], CodexThreadDirectoryError> {
-    const capability = yield* capabilities
-      .forHost(root.thread.executionHostId)
-      .pipe(Effect.mapError((cause) => error("discover", root.thread.threadId, cause)));
-    if (capability.hostId !== root.thread.executionHostId) {
-      return yield* error(
-        "discover",
-        root.thread.threadId,
-        new Error(
-          `Codex app-server capability belongs to '${capability.hostId}', not '${root.thread.executionHostId}'`,
-        ),
+      return yield* conversations.runCommand(
+        threadId,
+        readRemote(threadId, "metadata", hostId, input.metadataScheduling),
       );
     }
-    yield* requireCurrentCapability(
-      root.thread.threadId,
-      capability,
-      "starting subagent discovery",
-      "discover",
-    );
-    const discovered: DiscoveredSubagentRecord[] = [];
-    const seenCursors = new Set<string | null>();
-    const seenThreadIds = new Set<string>();
-    const rootCreatedAtSeconds = Math.floor(root.thread.createdAt / 1_000);
-    let cursor: string | null = null;
-    let resultBytes = 0;
-    let completed = false;
-    const startedAtMs = yield* Clock.currentTimeMillis;
-
-    for (let pageNumber = 0; pageNumber < CODEX_SUBAGENT_DISCOVERY_MAX_PAGES; pageNumber += 1) {
-      const remainingDeadlineMs =
-        CODEX_SUBAGENT_DISCOVERY_SCAN_DEADLINE_MS -
-        ((yield* Clock.currentTimeMillis) - startedAtMs);
-      if (remainingDeadlineMs <= 0) {
-        return yield* error(
-          "discover",
-          root.thread.threadId,
-          new Error("Subagent Thread discovery exceeded its total deadline"),
-        );
-      }
-      if (seenCursors.has(cursor)) {
-        return yield* error(
-          "discover",
-          root.thread.threadId,
-          new Error("Subagent Thread discovery cursor did not advance"),
-        );
-      }
-      seenCursors.add(cursor);
-      const params: ThreadListParams = {
-        cursor,
-        limit: CODEX_SUBAGENT_DISCOVERY_PAGE_SIZE,
-        sortKey: "created_at",
-        sortDirection: "desc",
-        sourceKinds: ["subAgentThreadSpawn"],
-        archived: false,
-        useStateDbOnly: true,
-        ancestorThreadId: root.thread.threadId,
-      };
-      const response = yield* gateway
-        .requestOnHost(root.thread.executionHostId, "thread/list", params, {
-          priority: "background",
-          source: "thread_list",
-          timeoutMs: Math.min(CODEX_SUBAGENT_DISCOVERY_PAGE_TIMEOUT_MS, remainingDeadlineMs),
-          ...codexGatewayGenerationFence(capability),
-        })
-        .pipe(Effect.mapError((cause) => error("discover", root.thread.threadId, cause)));
-      if (response.data.length > CODEX_SUBAGENT_DISCOVERY_PAGE_SIZE) {
-        return yield* error(
-          "discover",
-          root.thread.threadId,
-          new Error(
-            `Subagent Thread discovery page returned ${response.data.length} entries for limit ${CODEX_SUBAGENT_DISCOVERY_PAGE_SIZE}`,
-          ),
-        );
-      }
-      if (
-        cappedApproximateValueBytes(response.data, CODEX_SUBAGENT_DISCOVERY_MAX_PAGE_BYTES) >
-        CODEX_SUBAGENT_DISCOVERY_MAX_PAGE_BYTES
-      ) {
-        return yield* error(
-          "discover",
-          root.thread.threadId,
-          new Error("Subagent Thread discovery page exceeds its byte budget"),
-        );
-      }
-      for (const thread of response.data) {
-        yield* requireMetadataShell("discover", thread.id, thread, false);
-        const record = thread as unknown as Record<string, unknown>;
-        const parentThreadId = extractCodexThreadSubagentMetadata(record).parentThreadId;
-        if (!parentThreadId) continue;
-        const threadId = typeof record.id === "string" ? record.id.trim() : "";
-        if (!threadId || seenThreadIds.has(threadId)) continue;
-        if (discovered.length >= CODEX_SUBAGENT_DISCOVERY_MAX_RESULTS) {
-          return yield* error(
-            "discover",
-            root.thread.threadId,
-            new Error(
-              `Subagent Thread discovery exceeds its ${CODEX_SUBAGENT_DISCOVERY_MAX_RESULTS}-result budget`,
-            ),
-          );
-        }
-        const remainingBytes = CODEX_SUBAGENT_DISCOVERY_MAX_RESULT_BYTES - resultBytes;
-        const recordBytes = cappedApproximateValueBytes(record, remainingBytes);
-        if (recordBytes > remainingBytes) {
-          return yield* error(
-            "discover",
-            root.thread.threadId,
-            new Error("Subagent Thread discovery exceeds its result byte budget"),
-          );
-        }
-        discovered.push({ record, parentThreadId });
-        seenThreadIds.add(threadId);
-        resultBytes += recordBytes;
-      }
-      const reachedOlderThreads =
-        rootCreatedAtSeconds > 0 &&
-        response.data.some(
-          (thread) =>
-            typeof thread.createdAt === "number" && thread.createdAt < rootCreatedAtSeconds,
-        );
-      const nextCursor = reachedOlderThreads ? null : (response.nextCursor ?? null);
-      if (nextCursor === null) {
-        completed = true;
-        break;
-      }
-      if (seenCursors.has(nextCursor)) {
-        return yield* error(
-          "discover",
-          root.thread.threadId,
-          new Error("Subagent Thread discovery response repeated its continuation cursor"),
-        );
-      }
-      if (pageNumber + 1 >= CODEX_SUBAGENT_DISCOVERY_MAX_PAGES) {
-        return yield* error(
-          "discover",
-          root.thread.threadId,
-          new Error(
-            `Subagent Thread discovery exceeds its ${CODEX_SUBAGENT_DISCOVERY_MAX_PAGES}-page budget`,
-          ),
-        );
-      }
-      cursor = nextCursor;
-    }
-    if (!completed) {
-      return yield* error(
-        "discover",
-        root.thread.threadId,
-        new Error("Subagent Thread discovery exhausted its page budget"),
-      );
-    }
-    yield* requireCurrentCapability(
-      root.thread.threadId,
-      capability,
-      "accepting subagent discovery",
-      "discover",
-    );
-    return yield* Effect.forEach(discovered, ({ record, parentThreadId }) =>
-      persistObservation({
-        thread: record,
-        parentThreadId,
-        lineageRootThreadId: root.thread.threadId,
-        executionHostId: root.thread.executionHostId,
-        fallbackCwd: typeof record.cwd === "string" ? record.cwd : root.thread.cwd,
-      }).pipe(Effect.map((durable) => entry(durable, "metadata"))),
+    return yield* conversations.runCommand(
+      threadId,
+      readRemote(threadId, input.fidelity, hostId, input.metadataScheduling),
     );
   });
-
-  const isDescendant = Effect.fn("CodexThreadDirectory.isDescendant")(function* (
-    rootThreadId: string,
-    threadId: string,
-  ): Effect.fn.Return<boolean, CodexThreadDirectoryError> {
-    if (rootThreadId === threadId) return false;
-    const visited = new Set<string>();
-    let current: string | null = threadId;
-    for (
-      let depth = 0;
-      current && !visited.has(current) && depth < CODEX_SUBAGENT_LINEAGE_MAX_DEPTH;
-      depth += 1
-    ) {
-      visited.add(current);
-      const durable: DurableThread | null = yield* readDurable(current);
-      const parentThreadId: string | null = durable?.thread.parentThreadId ?? null;
-      if (parentThreadId === rootThreadId) return true;
-      current = parentThreadId;
-    }
-    return false;
-  });
-
-  const admitDescendantEntries = Effect.fn("CodexThreadDirectory.admitDescendantEntries")(
-    function* (
-      candidates: readonly CodexThreadDirectoryEntry[],
-      fidelity: Exclude<CodexThreadDirectoryResolveFidelity, "live">,
-      rootThreadId: string,
-    ): Effect.fn.Return<readonly CodexThreadDirectoryEntry[], CodexThreadDirectoryError> {
-      const maximumResults =
-        fidelity === "tail"
-          ? CODEX_SUBAGENT_TAIL_HYDRATION_MAX_RESULTS
-          : CODEX_SUBAGENT_DISCOVERY_MAX_RESULTS;
-      const maximumBytes =
-        fidelity === "tail"
-          ? CODEX_SUBAGENT_TAIL_HYDRATION_MAX_RESULT_BYTES
-          : CODEX_SUBAGENT_DISCOVERY_MAX_RESULT_BYTES;
-      if (candidates.length > maximumResults) {
-        return yield* error(
-          "discover",
-          rootThreadId,
-          new Error(`Subagent ${fidelity} hydration exceeds its ${maximumResults}-result budget`),
-        );
-      }
-      const admitted: CodexThreadDirectoryEntry[] = [];
-      let admittedBytes = 0;
-      for (const candidate of candidates) {
-        const remainingBytes = maximumBytes - admittedBytes;
-        const candidateBytes = cappedApproximateValueBytes(candidate, remainingBytes);
-        if (candidateBytes > remainingBytes) {
-          return yield* error(
-            "discover",
-            rootThreadId,
-            new Error(`Subagent ${fidelity} hydration exceeds its result byte budget`),
-          );
-        }
-        admitted.push(candidate);
-        admittedBytes += candidateBytes;
-      }
-      return admitted;
-    },
-  );
-
-  const resolveDescendants = Effect.fn("CodexThreadDirectory.resolveDescendants")(function* (
-    candidates: readonly CodexThreadDirectoryEntry[],
-    fidelity: Exclude<CodexThreadDirectoryResolveFidelity, "live">,
-    rootThreadId: string,
-  ): Effect.fn.Return<readonly CodexThreadDirectoryEntry[], CodexThreadDirectoryError> {
-    if (fidelity === "metadata") {
-      return yield* admitDescendantEntries(candidates, fidelity, rootThreadId);
-    }
-    if (fidelity === "durable") {
-      return yield* admitDescendantEntries(
-        candidates.map((candidate) => ({ ...candidate, fidelity: "durable" as const })),
-        fidelity,
-        rootThreadId,
-      );
-    }
-    if (candidates.length > CODEX_SUBAGENT_TAIL_HYDRATION_MAX_RESULTS) {
-      return yield* error(
-        "discover",
-        rootThreadId,
-        new Error(
-          `Subagent tail hydration exceeds its ${CODEX_SUBAGENT_TAIL_HYDRATION_MAX_RESULTS}-result budget`,
-        ),
-      );
-    }
-    const resolved: CodexThreadDirectoryEntry[] = [];
-    let resolvedBytes = 0;
-    for (const candidate of candidates) {
-      const entry = yield* resolvePhysical({
-        threadId: candidate.summary.threadId,
-        fidelity,
-      });
-      if (!entry) continue;
-      const remainingBytes = CODEX_SUBAGENT_TAIL_HYDRATION_MAX_RESULT_BYTES - resolvedBytes;
-      const entryBytes = cappedApproximateValueBytes(entry, remainingBytes);
-      if (entryBytes > remainingBytes) {
-        return yield* error(
-          "discover",
-          rootThreadId,
-          new Error("Subagent tail hydration exceeds its result byte budget"),
-        );
-      }
-      resolved.push(entry);
-      resolvedBytes += entryBytes;
-    }
-    return resolved;
-  });
-
-  const descendants = (input: {
-    readonly rootThreadId: string;
-    readonly threadIds?: readonly string[];
-    readonly fidelity: Exclude<CodexThreadDirectoryResolveFidelity, "live">;
-  }): Effect.Effect<readonly CodexThreadDirectoryEntry[], CodexThreadDirectoryError> =>
-    runOwned(
-      Effect.gen(function* () {
-        const rootThreadId = input.rootThreadId.trim();
-        if (!rootThreadId) return [];
-        const root = yield* resolvePhysical({ threadId: rootThreadId, fidelity: "durable" });
-        if (!root) return [];
-        const rootDurable = yield* readDurable(rootThreadId);
-        if (!rootDurable) return [];
-        const requested = normalizeIds(input.threadIds ?? []);
-        if (requested.overflowed) {
-          return yield* error(
-            "discover",
-            rootThreadId,
-            new Error(
-              `Subagent selection exceeds its ${CODEX_SUBAGENT_DISCOVERY_MAX_REQUEST_IDS}-Thread budget`,
-            ),
-          );
-        }
-        if (requested.ids.length === 0) {
-          const discovered = yield* discover(rootDurable);
-          return yield* resolveDescendants(discovered, input.fidelity, rootThreadId);
-        }
-
-        const known = yield* Effect.forEach(
-          requested.ids,
-          (threadId) => isDescendant(rootThreadId, threadId),
-          { concurrency: 2 },
-        );
-        if (known.some((value) => !value)) yield* discover(rootDurable);
-        const accepted = yield* Effect.filter(
-          requested.ids,
-          (threadId) => isDescendant(rootThreadId, threadId),
-          { concurrency: 2 },
-        );
-        const candidates: CodexThreadDirectoryEntry[] = [];
-        for (const threadId of accepted) {
-          const candidate = yield* resolvePhysical({ threadId, fidelity: "metadata" });
-          if (candidate) candidates.push(candidate);
-        }
-        return yield* resolveDescendants(candidates, input.fidelity, rootThreadId);
-      }).pipe(
-        Effect.mapError((cause) =>
-          cause instanceof CodexThreadDirectoryError
-            ? cause
-            : error("discover", input.rootThreadId, cause),
-        ),
-      ),
-    );
 
   const acceptRollbackResult = Effect.fn("CodexThreadDirectory.acceptRollbackResult")(
     function* (input: {
@@ -1567,7 +1218,6 @@ export const make: Effect.Effect<
         if (!hostId) return null;
         return yield* readRemote(threadId, "live", hostId);
       }),
-    descendants,
     acceptRollbackResult: (input) => runOwned(acceptRollbackResult(input)),
     acceptForkResult: (input) => runOwned(acceptForkResult(input)),
     acceptImportResult: (input) => runOwned(acceptImportResult(input)),
