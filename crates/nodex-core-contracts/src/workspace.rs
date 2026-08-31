@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 19;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 20;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -71,6 +71,20 @@ pub enum ProjectWorkspaceRead {
     ChildThreadWindow {
         parent_thread_id: String,
         include_archived: Option<bool>,
+        window: CollectionWindowRequest,
+    },
+    SubagentOverviewWindow {
+        universe: ProjectWorkspaceSubagentUniverse,
+        active_window: CollectionWindowRequest,
+        done_window: CollectionWindowRequest,
+    },
+    SubagentOverviewItem {
+        universe: ProjectWorkspaceSubagentUniverse,
+        thread_id: String,
+    },
+    SubagentLifecycleBatch {
+        lifecycle_operation_id: String,
+        include_settled: bool,
         window: CollectionWindowRequest,
     },
     ExecutionContext {
@@ -151,6 +165,16 @@ pub enum ProjectWorkspaceReadValue {
     },
     ChildThreadWindow {
         threads: CollectionWindow<ProjectWorkspaceThreadSummary>,
+    },
+    SubagentOverviewWindow {
+        overview: ProjectWorkspaceSubagentOverview,
+    },
+    SubagentOverviewItem {
+        item: Option<Box<ProjectWorkspaceSubagentOverviewItem>>,
+        projection_revision: i64,
+    },
+    SubagentLifecycleBatch {
+        lifecycle: ProjectWorkspaceSubagentLifecycle,
     },
     ExecutionContext {
         context: Box<ProjectWorkspaceExecutionContext>,
@@ -406,6 +430,125 @@ pub enum CodexThreadStatusType {
 pub enum CodexThreadActiveFlag {
     WaitingOnApproval,
     WaitingOnUserInput,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSubagentUniverse {
+    pub host_id: String,
+    pub source_epoch: String,
+    pub generation: i64,
+    pub root_thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSubagentObservation {
+    pub thread_id: String,
+    pub parent_thread_id: String,
+    pub patch: Box<ProjectWorkspaceThreadPatch>,
+    pub source_revision: i64,
+    pub observed_at_ms: i64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceSubagentStatus {
+    Active,
+    Waiting,
+    Done,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceSubagentStatusEvidenceKind {
+    Metadata,
+    Notification,
+    Completion,
+    Reconciliation,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSubagentStatusEvidence {
+    pub kind: ProjectWorkspaceSubagentStatusEvidenceKind,
+    pub source_revision: i64,
+    pub observed_at_ms: i64,
+}
+
+/// Optional compare-and-set guard for observations derived from an asynchronous remote read.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ProjectWorkspaceSubagentStatusEvidencePrecondition {
+    Absent,
+    Exact {
+        evidence_kind: ProjectWorkspaceSubagentStatusEvidenceKind,
+        source_revision: i64,
+        observed_at_ms: i64,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSubagentOverviewItem {
+    pub thread: ProjectWorkspaceThreadSummary,
+    pub status: ProjectWorkspaceSubagentStatus,
+    pub evidence: Option<ProjectWorkspaceSubagentStatusEvidence>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSubagentOverview {
+    pub universe: ProjectWorkspaceSubagentUniverse,
+    pub active: CollectionWindow<ProjectWorkspaceSubagentOverviewItem>,
+    pub done: CollectionWindow<ProjectWorkspaceSubagentOverviewItem>,
+    pub known_active_count: u32,
+    pub known_done_count: u32,
+    pub discovery_complete: bool,
+    pub discovery_continuation: Option<String>,
+    pub projection_revision: i64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceSubagentLifecycleAction {
+    Archive,
+    Delete,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceSubagentLifecycleOutcome {
+    Pending,
+    Unresolved,
+    Failed,
+    Settled,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSubagentLifecycleObservation {
+    pub thread_id: String,
+    pub outcome: ProjectWorkspaceSubagentLifecycleOutcome,
+    pub reason: Option<String>,
+    pub observed_at_ms: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSubagentLifecycleMember {
+    pub thread_id: String,
+    pub outcome: ProjectWorkspaceSubagentLifecycleOutcome,
+    pub attempt_count: u32,
+    pub last_reason: Option<String>,
+    pub observed_at_ms: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSubagentLifecycle {
+    pub universe: ProjectWorkspaceSubagentUniverse,
+    pub lifecycle_operation_id: String,
+    pub action: ProjectWorkspaceSubagentLifecycleAction,
+    pub members: CollectionWindow<ProjectWorkspaceSubagentLifecycleMember>,
+    pub expected_count: u32,
+    pub processed_count: u32,
+    pub unresolved_count: u32,
+    pub complete: bool,
+    pub projection_revision: i64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1082,6 +1225,42 @@ pub enum ProjectWorkspaceIntent {
     ReconcileAppServerThreadSweep {
         sweep_id: String,
         limit: Option<u32>,
+    },
+    ObserveSubagentDiscoveryPage {
+        universe: ProjectWorkspaceSubagentUniverse,
+        page_identity: String,
+        observations: Vec<ProjectWorkspaceSubagentObservation>,
+        continuation: Option<String>,
+        complete: bool,
+    },
+    ObserveSubagentStatusEvidence {
+        universe: ProjectWorkspaceSubagentUniverse,
+        thread_id: String,
+        status: ProjectWorkspaceSubagentStatus,
+        evidence_kind: ProjectWorkspaceSubagentStatusEvidenceKind,
+        source_revision: i64,
+        observed_at_ms: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        precondition: Option<ProjectWorkspaceSubagentStatusEvidencePrecondition>,
+    },
+    BufferSubagentStatusEvidence {
+        host_id: String,
+        source_epoch: String,
+        generation: i64,
+        thread_id: String,
+        status: ProjectWorkspaceSubagentStatus,
+        evidence_kind: ProjectWorkspaceSubagentStatusEvidenceKind,
+        source_revision: i64,
+        observed_at_ms: i64,
+    },
+    BeginSubagentLifecycle {
+        universe: ProjectWorkspaceSubagentUniverse,
+        lifecycle_operation_id: String,
+        action: ProjectWorkspaceSubagentLifecycleAction,
+    },
+    ObserveSubagentLifecycleOutcomes {
+        lifecycle_operation_id: String,
+        observations: Vec<ProjectWorkspaceSubagentLifecycleObservation>,
     },
     SetThreadArchived {
         thread_id: String,
