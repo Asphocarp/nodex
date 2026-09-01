@@ -24,7 +24,10 @@ import {
 import { CodexGateway, codexGatewayGenerationFence } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { allocateCodexPendingWorktreeRequest } from "../codex/codex-pending-worktree-request";
+import { buildCodexThreadConfigOverrides } from "../codex/codex-thread-capabilities";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
+import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { CodexAttachments } from "./CodexAttachments";
 import { AgentProviderRuntime } from "./AgentProviderRuntime";
@@ -109,6 +112,8 @@ export const make: Effect.Effect<
   | CodexTurnCommands
   | CodexTurnPreparation
   | CoreModules
+  | BrowserUseRuntime
+  | DesktopToolRuntime
   | ProjectRuntimeLifecycleRuntime
   | Scope.Scope
 > = Effect.gen(function* () {
@@ -117,6 +122,8 @@ export const make: Effect.Effect<
   const attachments = yield* CodexAttachments;
   const capabilities = yield* CodexAppServerCapabilities;
   const gateway = yield* CodexGateway;
+  const browserUse = yield* BrowserUseRuntime;
+  const desktopTools = yield* DesktopToolRuntime;
   const projectLifecycle = yield* ProjectRuntimeLifecycleRuntime;
   const pendingWorktrees = yield* CodexPendingWorktreeRuntime;
   const directory = yield* CodexThreadDirectory;
@@ -214,7 +221,7 @@ export const make: Effect.Effect<
           cwd: sourceWorkspaceRoot,
           fileAttachments: [],
           addedFiles: [],
-          agentMode: "auto",
+          agentMode: input.permissionMode ?? "auto",
           shouldSendPermissionOverrides: true,
           model: null,
           executionProfile: input.executionProfile ?? null,
@@ -293,6 +300,9 @@ export const make: Effect.Effect<
     const reasoningEffort = executionProfile
       ? executionProfile.reasoningEffort
       : input.reasoningEffort;
+    const desktopToolConfig = yield* desktopTools.threadConfig.pipe(
+      Effect.mapError((cause) => fail("start", input.sessionId, cause)),
+    );
     const request: ThreadStartParams = {
       cwd,
       runtimeWorkspaceRoots: workspaceRoots,
@@ -304,6 +314,8 @@ export const make: Effect.Effect<
       developerInstructions: input.additionalDeveloperInstructions ?? null,
       threadSource: input.threadSource ?? "user",
       config: {
+        ...(desktopToolConfig ?? {}),
+        ...buildCodexThreadConfigOverrides(),
         ...(executionProfile?.harnessId ? { harness: executionProfile.harnessId } : {}),
         ...(reasoningEffort
           ? {
@@ -345,6 +357,26 @@ export const make: Effect.Effect<
           input.sessionId,
           new Error("Thread has no canonical snapshot"),
         );
+      }
+      if (input.browserUsePresentationOrigin) {
+        yield* browserUse
+          .promoteRoute({
+            ...input.browserUsePresentationOrigin,
+            codexSessionId: entry.summary.threadId,
+            projectId: input.projectId,
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Started Thread after its Browser presentation expired").pipe(
+                Effect.annotateLogs({
+                  browserViewScopeId: input.browserUsePresentationOrigin?.browserViewScopeId,
+                  cause,
+                  sessionId: input.sessionId,
+                  threadId: entry.summary.threadId,
+                }),
+              ),
+            ),
+          );
       }
       const outcome = {
         projectId: input.projectId,

@@ -34,6 +34,9 @@ function makeFakeOpenInterpreterRelease(input?: {
   const sourceRoot = path.join(fixtureRoot, "release");
   const license = "fake apache license\n";
   const notice = "fake notice\n";
+  const patch = "fake reviewed source patch\n";
+  const patchArtifactPath = "third-party/open-interpreter/patches/reviewed.patch";
+  const patchSourcePath = "resources/agent-runtime/patches/reviewed.patch";
   const requiredArtifacts = [
     "codex-package.json",
     "bin/interpreter",
@@ -93,6 +96,9 @@ function makeFakeOpenInterpreterRelease(input?: {
   fs.mkdirSync(path.dirname(licensePath), { recursive: true });
   fs.writeFileSync(licensePath, license, "utf8");
   fs.writeFileSync(noticePath, notice, "utf8");
+  const patchPath = path.join(projectRoot, ...patchSourcePath.split("/"));
+  fs.mkdirSync(path.dirname(patchPath), { recursive: true });
+  fs.writeFileSync(patchPath, patch, "utf8");
 
   const artifacts = requiredArtifacts
     .filter((artifactPath) => fs.existsSync(path.join(sourceRoot, artifactPath)))
@@ -118,6 +124,12 @@ function makeFakeOpenInterpreterRelease(input?: {
         path: "third-party/open-interpreter/NOTICE",
         sha256: sha256(notice),
         size: Buffer.byteLength(notice),
+      },
+      {
+        executable: false,
+        path: patchArtifactPath,
+        sha256: sha256(patch),
+        size: Buffer.byteLength(patch),
       },
     ])
     .sort((left, right) => left.path.localeCompare(right.path));
@@ -146,7 +158,7 @@ function makeFakeOpenInterpreterRelease(input?: {
     searchPaths: ["codex-path"],
     sourceRevision: {
       commit: "a".repeat(40),
-      patches: [],
+      patches: [{ path: patchArtifactPath, sha256: sha256(patch) }],
       repository: "openinterpreter/openinterpreter",
     },
     targetArch: "arm64",
@@ -169,7 +181,13 @@ function makeFakeOpenInterpreterRelease(input?: {
       source: {
         repository: "openinterpreter/openinterpreter",
         commit: "a".repeat(40),
-        patches: [],
+        patches: [
+          {
+            sourcePath: patchSourcePath,
+            artifactPath: patchArtifactPath,
+            sha256: sha256(patch),
+          },
+        ],
       },
       release: {
         repository: "example/nodex",
@@ -295,6 +313,7 @@ describe("stage-codex-runtime", () => {
         "codex-resources/zsh/bin/zsh",
         "third-party/open-interpreter/LICENSE",
         "third-party/open-interpreter/NOTICE",
+        "third-party/open-interpreter/patches/reviewed.patch",
       ]);
     } finally {
       fixture.cleanup();

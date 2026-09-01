@@ -21,6 +21,7 @@ import type {
   CodexThreadSummary,
 } from "../../shared/types";
 import type { AgentExecutionProfile } from "../../shared/agent-runtime";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 import type { DesktopProjectWorkspaceThread } from "../core-client/project-workspace-adapter";
 import { CoreModuleResponseError } from "../core-client/core-client";
 import {
@@ -71,6 +72,27 @@ export interface CodexThreadDirectoryEntry {
   readonly canonical: CodexCanonicalConversationState | null;
   readonly snapshot: CodexConversationSnapshot | null;
 }
+
+type RuntimeExecutionProfileResponse = Pick<
+  ThreadResumeResponse,
+  "model" | "modelProvider" | "reasoningEffort" | "serviceTier"
+>;
+
+const projectRuntimeExecutionProfile = (
+  response: RuntimeExecutionProfileResponse,
+  fallback: AgentExecutionProfile | null,
+): AgentExecutionProfile | null => {
+  const modelId = response.model.trim();
+  const providerId = response.modelProvider.trim();
+  if (!modelId || !providerId) return fallback;
+  return {
+    providerId,
+    modelId,
+    harnessId: fallback?.harnessId ?? null,
+    reasoningEffort: response.reasoningEffort,
+    serviceTier: normalizeCodexServiceTier(response.serviceTier),
+  };
+};
 
 export class CodexThreadDirectoryError extends Schema.TaggedError<CodexThreadDirectoryError>()(
   "CodexThreadDirectoryError",
@@ -466,8 +488,8 @@ export const make: Effect.Effect<
   }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
     const threadId = input.durable.thread.threadId;
     const aggregate = conversations.entity(threadId);
-    const existingPermissions =
-      aggregate.readCanonicalState()?.sidecar.hydrationContext?.currentPermissions;
+    const existingHydrationContext = aggregate.readCanonicalState()?.sidecar.hydrationContext;
+    const existingPermissions = existingHydrationContext?.currentPermissions;
     const fallbackPermissions = createCodexCanonicalWorkspacePermissionContext(
       input.durable.raw.writable_roots,
     );
@@ -480,6 +502,19 @@ export const make: Effect.Effect<
           sandboxPolicy: input.context.sandbox,
         }
       : (existingPermissions ?? fallbackPermissions);
+    const latestThreadSettings = input.context
+      ? {
+          cwd: input.context.cwd,
+          approvalPolicy: input.context.approvalPolicy,
+          approvalsReviewer: input.context.approvalsReviewer,
+          activePermissionProfile: input.context.activePermissionProfile,
+          sandboxPolicy: input.context.sandbox,
+          model: input.context.model,
+          serviceTier: normalizeCodexServiceTier(input.context.serviceTier),
+          effort: input.context.reasoningEffort,
+          multiAgentMode: input.context.multiAgentMode,
+        }
+      : (existingHydrationContext?.latestThreadSettings ?? null);
     const canonical = yield* Effect.try({
       try: () =>
         createCodexCanonicalHydratedConversationState(input.thread, {
@@ -497,6 +532,7 @@ export const make: Effect.Effect<
           sandboxPolicy: permissions.sandboxPolicy,
           activePermissionProfile: permissions.activePermissionProfile,
           runtimeWorkspaceRoots: [...permissions.runtimeWorkspaceRoots],
+          latestThreadSettings,
           pendingRequests: input.pendingRequests ?? aggregate.readServerRequests(),
           hasUnreadTurn: input.hasUnreadTurn ?? input.durable.thread.hasUnreadTurn,
           turnItemsPaginationById: input.itemsPaginationByTurnId,
@@ -850,24 +886,10 @@ export const make: Effect.Effect<
         new Error("Core returned a non-execution-context read variant"),
       );
     }
-    const executionProfile: AgentExecutionProfile | null = source.thread.executionProfile
-      ? {
-          ...source.thread.executionProfile,
-          providerId: input.response.modelProvider,
-          modelId: input.response.model,
-          reasoningEffort:
-            input.response.reasoningEffort ?? source.thread.executionProfile.reasoningEffort,
-          serviceTier: input.response.serviceTier,
-        }
-      : input.response.model
-        ? {
-            providerId: input.response.modelProvider,
-            modelId: input.response.model,
-            harnessId: null,
-            reasoningEffort: input.response.reasoningEffort,
-            serviceTier: input.response.serviceTier,
-          }
-        : null;
+    const executionProfile = projectRuntimeExecutionProfile(
+      input.response,
+      source.thread.executionProfile ?? null,
+    );
     const thread = normalizeThread({
       ...input.response.thread,
       forkedFromId: sourceThreadId,
@@ -1033,6 +1055,10 @@ export const make: Effect.Effect<
       yield* requireMetadataShell("materialize", threadId, rawThread, false);
       const thread = normalizeThread(rawThread);
       const cwd = input.response.cwd || thread.cwd || input.fallbackCwd;
+      const executionProfile = projectRuntimeExecutionProfile(
+        input.response,
+        input.executionProfile,
+      );
       yield* core.workspace
         .apply({
           operationId: createOperationId("thread-directory.session-thread-start"),
@@ -1046,12 +1072,11 @@ export const make: Effect.Effect<
               thread_patch: {
                 project_id: input.projectId,
                 thread_preview: thread.preview,
-                model_provider: input.executionProfile?.providerId ?? thread.modelProvider,
-                model_id: input.executionProfile?.modelId ?? input.response.model,
-                harness_id: input.executionProfile?.harnessId ?? null,
-                reasoning_effort:
-                  input.executionProfile?.reasoningEffort ?? input.response.reasoningEffort,
-                service_tier: input.executionProfile?.serviceTier ?? null,
+                model_provider: executionProfile?.providerId ?? thread.modelProvider,
+                model_id: executionProfile?.modelId ?? input.response.model,
+                harness_id: executionProfile?.harnessId ?? null,
+                reasoning_effort: executionProfile?.reasoningEffort ?? null,
+                service_tier: executionProfile?.serviceTier ?? null,
               },
               execution_location: {
                 execution_host_id: gateway.localHostId,
@@ -1104,6 +1129,10 @@ export const make: Effect.Effect<
       }
       yield* requireMetadataShell("materialize", threadId, rawThread, false);
       const cwd = input.response.cwd || rawThread.cwd || input.fallbackCwd;
+      const executionProfile = projectRuntimeExecutionProfile(
+        input.response,
+        input.executionProfile,
+      );
       const thread = normalizeThread({
         ...rawThread,
         cwd,
@@ -1112,7 +1141,7 @@ export const make: Effect.Effect<
       } as unknown as Thread);
       const durable = yield* persistObservation({
         thread,
-        executionProfile: input.executionProfile,
+        executionProfile,
         managedWorktreePath: input.managedWorktreePath ?? null,
         inferredInitialProjectId: input.projectId,
         executionHostId: gateway.localHostId,
@@ -1169,8 +1198,14 @@ export const make: Effect.Effect<
       );
       const cwd = input.response.cwd || rawThread.cwd || input.fallbackCwd;
       const metadataThread = normalizeThread({ ...rawThread, cwd });
+      const existing = yield* readDurable(threadId);
+      const executionProfile = projectRuntimeExecutionProfile(
+        input.response,
+        existing?.thread.executionProfile ?? null,
+      );
       const durable = yield* persistObservation({
         thread: metadataThread,
+        executionProfile,
         executionHostId: input.executionHostId,
         fallbackCwd: cwd,
       });

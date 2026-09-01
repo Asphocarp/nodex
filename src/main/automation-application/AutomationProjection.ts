@@ -9,6 +9,7 @@ import type {
   PageRunInTarget,
   Priority,
 } from "../../shared/types";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 import { canonicalizePortableRichText } from "../../shared/block-documents/portable-rich-text";
 import { PRIORITY_VALUES } from "../../shared/priority";
 import { isWorkflowStatus } from "../../shared/workflow-status";
@@ -58,7 +59,7 @@ export const projectAutomationDefinition = (
   modelProvider: definition.model_provider ?? null,
   harnessId: definition.harness_id ?? null,
   reasoningEffort: definition.reasoning_effort ?? null,
-  serviceTier: definition.service_tier ?? null,
+  serviceTier: normalizeCodexServiceTier(definition.service_tier),
   cwds: [...definition.cwds],
   executionEnvironment: definition.execution_environment,
   localEnvironmentConfigPath: definition.local_environment_config_path ?? null,
@@ -201,7 +202,7 @@ export const toCoreAutomationDefinitionInput = (input: CodexScheduledAutomationC
   model_provider: input.modelProvider ?? null,
   harness_id: input.harnessId ?? null,
   reasoning_effort: input.reasoningEffort ?? null,
-  service_tier: input.serviceTier ?? null,
+  service_tier: normalizeCodexServiceTier(input.serviceTier),
   cwds: input.cwds ?? null,
   execution_environment: input.executionEnvironment ?? null,
   local_environment_config_path: input.localEnvironmentConfigPath ?? null,

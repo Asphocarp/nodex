@@ -1,6 +1,7 @@
 import type { CollaborationMode as CodexAppServerCollaborationMode } from "@nodex/codex-app-server-protocol";
 import type { ThreadSettingsUpdateParams } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdateParams";
 import type { AgentExecutionProfile, AgentModelOption } from "../../shared/agent-runtime";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 import type {
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
@@ -8,14 +9,9 @@ import type {
   CodexConversationThreadSettingsPatch,
   CodexPersonality,
   CodexReasoningEffort,
-  CodexServiceTier,
 } from "../../shared/types";
 
-export const normalizeCodexServiceTier = (value: unknown): CodexServiceTier => {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  return normalized && normalized !== "standard" ? normalized : null;
-};
+export { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 
 export const normalizeThreadSettingsModel = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -197,7 +193,9 @@ export const buildThreadSettingsUpdateParams = (input: {
     params.model = executionProfile?.modelId ?? input.patch.model ?? null;
   }
   if (executionProfile || hasOwnValue(input.patch, "serviceTier")) {
-    params.serviceTier = executionProfile?.serviceTier ?? input.patch.serviceTier ?? null;
+    params.serviceTier = executionProfile
+      ? executionProfile.serviceTier
+      : (input.patch.serviceTier ?? null);
   }
   if (executionProfile || hasOwnValue(input.patch, "reasoningEffort")) {
     params.effort = executionProfile?.reasoningEffort ?? input.patch.reasoningEffort ?? null;

@@ -25,10 +25,31 @@ describe("Thread start execution profiles", () => {
     expect(() => requireExactThreadStartProfile(response(), profile)).not.toThrow();
   });
 
+  test("accepts the app-server Standard sentinel as the domain null tier", () => {
+    expect(() =>
+      requireExactThreadStartProfile(response({ serviceTier: "default" }), profile),
+    ).not.toThrow();
+  });
+
   test("rejects provider fallback before first-Turn admission", () => {
     expect(() =>
       requireExactThreadStartProfile(response({ model: "gpt-5.6-sol" }), profile),
     ).toThrow("modelId");
+  });
+
+  test("rejects a real service-tier substitution", () => {
+    expect(() =>
+      requireExactThreadStartProfile(response({ serviceTier: "priority" }), profile),
+    ).toThrow("serviceTier");
+  });
+
+  test("does not treat the Standard sentinel as a named tier", () => {
+    expect(() =>
+      requireExactThreadStartProfile(response({ serviceTier: "default" }), {
+        ...profile,
+        serviceTier: "priority",
+      }),
+    ).toThrow("serviceTier");
   });
 
   test("leaves legacy scalar launches unchanged", () => {

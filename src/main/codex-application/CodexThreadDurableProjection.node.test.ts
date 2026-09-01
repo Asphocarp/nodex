@@ -2,8 +2,10 @@ import type { Thread, Turn } from "@nodex/codex-app-server-protocol/v2";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
+import { CoreModuleResponseError } from "../core-client/core-client";
 import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
 import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules";
+import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import {
@@ -83,6 +85,85 @@ const appThread = (turns: readonly Turn[]): Thread => ({
   name: "Thread A",
   turns: [...turns],
 });
+
+const missingThread = (threadId: string) =>
+  new CoreRuntimeError({
+    message: "Native Core workspace.read failed",
+    operation: "workspace.read",
+    reason: "operation",
+    retryable: false,
+    cause: new CoreModuleResponseError({
+      code: "not_found",
+      message: `Missing ${threadId}`,
+      retryable: false,
+      recovery: { kind: "none" },
+    }),
+  });
+
+it.effect(
+  "accepts status that arrives before Thread identity without issuing a partial update",
+  () =>
+    Effect.gen(function* () {
+      let applyCount = 0;
+      let sidebarCount = 0;
+      const workspace: CoreModuleClients["workspace"] = {
+        read: (input) =>
+          input.kind === "thread"
+            ? Effect.fail(missingThread(input.thread_id) as never)
+            : Effect.die(`Unexpected read ${input.kind}`),
+        apply: () =>
+          Effect.sync(() => {
+            applyCount += 1;
+            return {} as never;
+          }),
+      };
+      const service = yield* make.pipe(
+        Effect.provideService(
+          CodexApplicationEventHub,
+          CodexApplicationEventHub.of({ events: Stream.empty, publish: () => undefined }),
+        ),
+        Effect.provideService(
+          CodexConversationProjection,
+          CodexConversationProjection.of({} as CodexConversationProjection["Service"]),
+        ),
+        Effect.provideService(
+          CodexSidebarSyncRuntime,
+          CodexSidebarSyncRuntime.of({
+            scheduleNotification: () => {
+              sidebarCount += 1;
+            },
+          } as unknown as CodexSidebarSyncRuntime["Service"]),
+        ),
+        Effect.provideService(
+          ConversationEntityMap,
+          ConversationEntityMap.of({
+            current: () => null,
+          } as unknown as ConversationEntityMap["Service"]),
+        ),
+        Effect.provideService(
+          CoreModules,
+          CoreModules.of({ workspace } as unknown as CoreModuleClients),
+        ),
+      );
+
+      yield* service.observe({
+        hostId: "local",
+        generation: 1,
+        occurrenceId: "local:1:inbox-a:40",
+        occurrenceToken: 40,
+        notification: {
+          method: "thread/status/changed",
+          params: {
+            threadId: "child-before-identity",
+            status: { type: "active", activeFlags: [] },
+          },
+        },
+      });
+
+      assert.strictEqual(applyCount, 0);
+      assert.strictEqual(sidebarCount, 0);
+    }),
+);
 
 it.effect("serially commits archive and delete observations before scheduling sidebar repair", () =>
   Effect.gen(function* () {

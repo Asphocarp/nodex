@@ -90,7 +90,7 @@ it.effect("registers application channels directly against their owning modules"
       readResource: () => Effect.die("unused"),
       callTool: () => Effect.die("unused"),
       listApps: Effect.succeed([]),
-      listServerStatuses: Effect.die("unused"),
+      listServerStatuses: () => Effect.die("unused"),
     });
     const externalSuggestions = ComposerExternalSuggestions.of({
       listSites: Effect.succeed({ available: false, sites: [] }),

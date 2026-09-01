@@ -1,7 +1,6 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
-import http from "node:http";
 import path from "node:path";
 
 import {
@@ -9,6 +8,9 @@ import {
   readBoundedElectronRuntimeLogs,
 } from "../../scripts/scenarios/harness/electron-e2e-harness";
 import {
+  buildPaidAgentSmokeCodexConfig,
+  isPaidChatGptPlan,
+  PAID_AGENT_SMOKE_DISABLED_SKILL_NAMES,
   PAID_AGENT_SMOKE_DEFINITIONS,
   type PaidAgentSmokeCase,
 } from "../../scripts/paid-agent-smoke-contract";
@@ -19,70 +21,21 @@ import type {
   AgentProviderCatalog,
   AgentProviderOption,
 } from "../../src/shared/agent-runtime";
-import { createBoundedOperationId } from "../../src/shared/operation-identity";
-import { createUuidV7 } from "../../src/shared/uuid-v7";
+import {
+  AGENT_EXECUTION_PROFILE_STORAGE_KEY as PROFILE_STORAGE_KEY,
+  collectRecords,
+  createAgentSmokeDraft,
+  invokeIpc,
+  isRecord,
+  requireRecord,
+  sendAgentPrompt,
+  waitForCompletedAgentTurn,
+  waitForFinalMarker as waitForAgentFinalMarker,
+} from "./support/agent-smoke-harness";
+import { startBrowserHttpFixture } from "./support/browser-http-fixture";
 
 const repositoryRoot = process.cwd();
 const readyCredentialStatuses = new Set(["ready", "inherited", "runtimeManaged"]);
-const PROFILE_STORAGE_KEY = "nodex-agent-execution-profile-v1";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const requireRecord = (value: unknown, label: string): Record<string, unknown> => {
-  if (isRecord(value)) return value;
-  throw new Error(`${label} returned no record`);
-};
-
-const requireCoreValue = (result: unknown, label: string): unknown => {
-  if (isRecord(result) && result.ok === true && "value" in result) return result.value;
-  const message =
-    isRecord(result) && isRecord(result.error) && typeof result.error.message === "string"
-      ? result.error.message
-      : "unknown Core error";
-  throw new Error(`${label} failed: ${message}`);
-};
-
-const invokeIpc = async (
-  page: Page,
-  channel: string,
-  ...arguments_: readonly unknown[]
-): Promise<unknown> =>
-  await page.evaluate(
-    async ({ targetChannel, targetArguments }) =>
-      await window.api?.invoke(targetChannel, ...targetArguments),
-    { targetChannel: channel, targetArguments: arguments_ },
-  );
-
-const collectRecords = (value: unknown): Record<string, unknown>[] => {
-  const records: Record<string, unknown>[] = [];
-  const seen = new Set<unknown>();
-  const visit = (candidate: unknown): void => {
-    if (candidate === null || typeof candidate !== "object" || seen.has(candidate)) return;
-    seen.add(candidate);
-    if (Array.isArray(candidate)) {
-      for (const item of candidate) visit(item);
-      return;
-    }
-    if (!isRecord(candidate)) return;
-    records.push(candidate);
-    for (const child of Object.values(candidate)) visit(child);
-  };
-  visit(value);
-  return records;
-};
-
-const collectReceiverThreadIds = (value: unknown): readonly string[] => {
-  const receiverThreadIds = new Set<string>();
-  for (const record of collectRecords(value)) {
-    if (!Array.isArray(record.receiverThreadIds)) continue;
-    for (const candidate of record.receiverThreadIds) {
-      if (typeof candidate === "string") receiverThreadIds.add(candidate);
-    }
-  }
-  return [...receiverThreadIds];
-};
-
 const profileFor = (
   provider: AgentProviderOption,
   model: AgentModelOption,
@@ -142,12 +95,32 @@ const preflightExecutionProfile = async (
   };
 };
 
+const exactMenuItem = (page: Page, text: string): Locator =>
+  page.getByRole("menuitem").filter({ hasText: text }).last();
+
 const clickExactMenuItem = async (page: Page, text: string): Promise<void> => {
-  const item = page.getByRole("menuitem").filter({ hasText: text }).last();
+  const item = exactMenuItem(page, text);
   await expect(item).toBeVisible();
   const label = (await item.locator("span").first().textContent())?.trim();
   if (!label?.startsWith(text)) throw new Error(`Could not resolve exact menu item ${text}`);
   await item.click();
+};
+
+const openFlyoutSubmenu = async (
+  page: Page,
+  trigger: Locator,
+  expectedItem: Locator,
+): Promise<void> => {
+  await expect(trigger).toBeVisible();
+  await trigger.hover();
+  const openedOnHover = await expectedItem
+    .waitFor({ state: "visible", timeout: 2_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (openedOnHover) return;
+  await trigger.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(expectedItem).toBeVisible();
 };
 
 const selectExecutionProfile = async (
@@ -155,28 +128,40 @@ const selectExecutionProfile = async (
   input: Awaited<ReturnType<typeof preflightExecutionProfile>>,
 ): Promise<AgentExecutionProfile> => {
   const trigger = page.getByRole("button", { name: "Select model" });
-  await expect(trigger).toBeVisible();
-  await trigger.click();
+  const openRootMenu = async (): Promise<void> => {
+    const modelSummary = page.locator('[aria-label^="Model "]').last();
+    if (await modelSummary.isVisible().catch(() => false)) return;
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await expect(modelSummary).toBeVisible();
+  };
+  await openRootMenu();
 
   const providerSummary = page.locator('[aria-label^="Provider "]').last();
   if ((await providerSummary.count()) > 0) {
     const providerLabel = await providerSummary.getAttribute("aria-label");
     if (providerLabel !== `Provider ${input.provider.displayName}`) {
-      await providerSummary.click();
+      const providerItem = exactMenuItem(page, input.provider.displayName);
+      await openFlyoutSubmenu(page, providerSummary, providerItem);
       await clickExactMenuItem(page, input.provider.displayName);
+      await openRootMenu();
     }
   }
 
-  await page.locator('[aria-label^="Model "]').last().click();
+  const modelSummary = page.locator('[aria-label^="Model "]').last();
+  await openFlyoutSubmenu(page, modelSummary, exactMenuItem(page, input.model.displayName));
   await clickExactMenuItem(page, input.model.displayName);
-  await page.locator('[aria-label^="Effort "]').last().click();
-  await page.locator(`[data-intelligence-option="${input.expected.reasoningEffort}"]`).click();
+  await openRootMenu();
+  const effortItem = page.locator(`[data-intelligence-option="${input.expected.reasoningEffort}"]`);
+  await openFlyoutSubmenu(page, page.locator('[aria-label^="Effort "]').last(), effortItem);
+  await effortItem.click();
+  await openRootMenu();
 
   const speedSummary = page.locator('[aria-label^="Speed "]').last();
   if ((await speedSummary.count()) > 0) {
     const speedLabel = await speedSummary.getAttribute("aria-label");
     if (speedLabel !== "Speed Standard") {
-      await speedSummary.click();
+      await openFlyoutSubmenu(page, speedSummary, exactMenuItem(page, "Standard"));
       await clickExactMenuItem(page, "Standard");
     }
   }
@@ -251,45 +236,8 @@ const createPaidSmokeDraft = async (
   page: Page,
   workspaceRoot: string,
   caseId: PaidAgentSmokeCase,
-): Promise<{ projectId: string; projectSessionId: string }> => {
-  const projectName = `Paid Agent ${caseId} smoke`;
-  const projectId = createUuidV7();
-  const project = requireRecord(
-    requireCoreValue(
-      await invokeIpc(page, "projects:create", {
-        operationId: createBoundedOperationId("e2e.paid-agent.project.create"),
-        payload: {
-          projectId,
-          input: { name: projectName, sources: [workspaceRoot] },
-        },
-      }),
-      "Paid smoke Project creation",
-    ),
-    "Paid smoke Project creation",
-  );
-  if (typeof project.id !== "string") throw new Error("Paid smoke Project returned no id");
-  await page.reload();
-  await page.evaluate(() => window.api?.awaitInitialization?.());
-  await page.getByRole("button", { name: `Start new chat in ${projectName}`, exact: true }).click();
-
-  let projectSessionId: string | null = null;
-  await expect
-    .poll(async () => {
-      const window = requireRecord(
-        await invokeIpc(page, "workspace:tasks:list", project.id, { first: 20 }),
-        "Paid smoke task window",
-      );
-      if (!Array.isArray(window.items)) return "missing";
-      const draft = window.items.find(
-        (item) => isRecord(item) && item.projectId === project.id && item.thread === null,
-      );
-      projectSessionId = isRecord(draft) && typeof draft.id === "string" ? draft.id : null;
-      return projectSessionId ? "ready" : "missing";
-    })
-    .toBe("ready");
-  if (!projectSessionId) throw new Error("Paid smoke draft returned no Project Session id");
-  return { projectId: project.id, projectSessionId };
-};
+): Promise<{ projectId: string; projectSessionId: string }> =>
+  await createAgentSmokeDraft(page, workspaceRoot, `Paid Agent ${caseId} smoke`);
 
 const beginEventCapture = async (page: Page): Promise<void> => {
   await page.evaluate(() => {
@@ -327,45 +275,76 @@ const capturedEvents = async (
     };
   });
 
-const sendPrompt = async (
-  page: Page,
-  projectSessionId: string,
-  prompt: string,
-): Promise<string> => {
-  const composer = page.locator('[data-codex-composer="true"][aria-label="Do anything"]');
-  await expect(composer).toBeVisible();
-  await composer.fill(prompt);
-  await expect(composer).toHaveText(prompt);
-  const sendButton = page.getByRole("button", { name: "Send prompt" });
-  await expect(sendButton).toBeEnabled();
-  await beginEventCapture(page);
-  await sendButton.click();
+const sendPrompt = async (page: Page, projectSessionId: string, prompt: string): Promise<string> =>
+  await sendAgentPrompt(page, projectSessionId, prompt, async () => beginEventCapture(page));
 
-  let threadId: string | null = null;
-  await expect
-    .poll(
-      async () => {
-        const session = await invokeIpc(page, "project-sessions:get", projectSessionId);
-        if (!isRecord(session) || !isRecord(session.thread)) return "missing";
-        threadId = typeof session.thread.threadId === "string" ? session.thread.threadId : null;
-        return threadId ? "linked" : "missing";
-      },
-      { timeout: 45_000 },
-    )
-    .toBe("linked");
-  if (!threadId) throw new Error("Paid smoke turn returned no thread id");
-  return threadId;
+const summarizeCodexEvent = (value: unknown): Record<string, unknown> => {
+  if (!isRecord(value)) return { type: typeof value };
+  const turn = isRecord(value.turn)
+    ? {
+        threadId: value.turn.threadId ?? null,
+        turnId: value.turn.turnId ?? value.turn.id ?? null,
+        status: value.turn.status ?? null,
+      }
+    : null;
+  return {
+    type: value.type ?? null,
+    rootThreadId: value.rootThreadId ?? null,
+    threadId: value.threadId ?? null,
+    statusType: value.statusType ?? null,
+    ...(turn ? { turn } : {}),
+  };
 };
 
-const waitForFinalMarker = async (page: Page, marker: string): Promise<void> => {
-  await expect(page.getByText(marker, { exact: false }).last()).toBeVisible({ timeout: 150_000 });
+const readRuntimeStateEvidence = async (
+  page: Page,
+  threadId: string | null,
+  codexHome: string,
+  caseId: PaidAgentSmokeCase,
+): Promise<Record<string, unknown>> => {
+  const events = await capturedEvents(page);
+  const snapshot = threadId
+    ? await invokeIpc(page, "codex:thread:snapshot:request", threadId).catch(() => null)
+    : null;
+  const snapshotRecord = isRecord(snapshot) ? snapshot : null;
+  const turns = Array.isArray(snapshotRecord?.turns) ? snapshotRecord.turns : [];
+  return {
+    browserStateCount: events.browserStates.length,
+    codexEventCount: events.codexEvents.length,
+    codexEventTail: events.codexEvents.slice(-200).map(summarizeCodexEvent),
+    rollout: threadId
+      ? await readPaidAgentRolloutEvidence(codexHome, threadId).catch(() => null)
+      : null,
+    summary: threadId
+      ? await invokeIpc(page, "codex:thread:summary:get", threadId).catch(() => null)
+      : null,
+    subagentOverview:
+      threadId && caseId === "subagent"
+        ? await invokeIpc(page, "codex:subagents:overview:read", {
+            rootThreadId: threadId,
+            mode: "expanded",
+          }).catch(() => null)
+        : null,
+    snapshot: {
+      statusType: snapshotRecord?.statusType ?? null,
+      turnCount: turns.length,
+      turns: turns.map((turn) => {
+        const record = isRecord(turn) ? turn : null;
+        return {
+          id: record?.id ?? record?.turnId ?? null,
+          status: record?.status ?? null,
+          itemCount: Array.isArray(record?.items) ? record.items.length : 0,
+        };
+      }),
+    },
+  };
 };
 
 const readCompletedThreadEvidence = async (
   page: Page,
   threadId: string,
   expectedProfile: AgentExecutionProfile,
-): Promise<{ snapshot: unknown; summary: Record<string, unknown> }> => {
+): Promise<{ snapshot: unknown; summary: Record<string, unknown>; turnId: string }> => {
   await expect
     .poll(
       async () => {
@@ -382,21 +361,50 @@ const readCompletedThreadEvidence = async (
   expect(summary.executionProfile).toEqual(expectedProfile);
   const snapshot = await invokeIpc(page, "codex:thread:snapshot:request", threadId);
   const snapshotRecord = requireRecord(snapshot, "Paid smoke thread snapshot");
-  expect(Array.isArray(snapshotRecord.turns) ? snapshotRecord.turns.length : 0).toBe(1);
-  return { snapshot, summary };
+  const turns = Array.isArray(snapshotRecord.turns) ? snapshotRecord.turns : [];
+  expect(turns).toHaveLength(1);
+  const turn = requireRecord(turns[0], "Paid smoke completed Turn");
+  const turnId = typeof turn.id === "string" ? turn.id : turn.turnId;
+  if (typeof turnId !== "string") throw new Error("Paid smoke completed Turn returned no id");
+  return { snapshot, summary, turnId };
 };
 
 const digest = (contents: Buffer | string): string =>
   createHash("sha256").update(contents).digest("hex");
 
 interface PaidCaseContext {
-  readonly childThreadIds: readonly string[];
   readonly codexHome: string;
   readonly page: Page;
   readonly profile: AgentExecutionProfile;
   readonly projectSessionId: string;
   readonly threadId: string;
 }
+
+const sanitizeFailure = (failure: unknown): { name: string; message: string } => {
+  if (!(failure instanceof Error)) {
+    return { name: "Error", message: String(failure).slice(0, 1_000) };
+  }
+  return {
+    name: failure.name || "Error",
+    message: failure.message.replaceAll(/[\u0000-\u001f\u007f-\u009f]+/gu, " ").slice(0, 1_000),
+  };
+};
+
+const preflightPaidAccount = async (page: Page): Promise<{ type: "chatgpt"; planType: string }> => {
+  const snapshot = requireRecord(
+    await invokeIpc(page, "codex:account:read"),
+    "Paid smoke account snapshot",
+  );
+  const account = requireRecord(snapshot.account, "Paid smoke account");
+  if (
+    account.type !== "chatgpt" ||
+    typeof account.planType !== "string" ||
+    !isPaidChatGptPlan(account.planType)
+  ) {
+    throw new Error("Paid Agent smoke requires a signed-in ChatGPT subscription account");
+  }
+  return { type: "chatgpt", planType: account.planType };
+};
 
 const runPaidCase = async (
   caseId: PaidAgentSmokeCase,
@@ -411,58 +419,124 @@ const runPaidCase = async (
     throw new Error("Use `vp run agent:smoke:paid --case ...` to run this test");
   const harness = await ElectronScenarioHarness.create({
     label: `paid-agent-${caseId}`,
-    codex: "empty",
+    codex: "copy-auth",
+    sourceCodexHome,
     cwd: repositoryRoot,
     prepareAgentRuntime: false,
     environment: { NODEX_LOG_FILE: "1", NODEX_LOG_CONSOLE: "0" },
   });
   const copiedAuthPath = path.join(harness.profile.codexHome, "auth.json");
+  const codexConfigPath = path.join(harness.profile.codexHome, "config.toml");
+  // These canaries validate one named tool boundary. The ambient QA skill can redirect the model
+  // to an unrelated CLI; all other bundled and DesktopToolRuntime plugin skills stay enabled.
+  fs.writeFileSync(codexConfigPath, buildPaidAgentSmokeCodexConfig(caseId), {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
   const diagnostics: string[] = [];
   const startedAt = Date.now();
   let page: Page | null = null;
+  let threadId: string | null = null;
   let result: Record<string, unknown> = {};
+  let runtimePreflight: Record<string, unknown> | null = null;
   let failure: unknown;
   try {
-    fs.copyFileSync(path.join(sourceCodexHome, "auth.json"), copiedAuthPath);
-    fs.chmodSync(copiedAuthPath, 0o600);
     page = await harness.launch();
     page.on("pageerror", (error) => diagnostics.push(`pageerror: ${error.message}`));
     page.on("console", (message) => {
       if (message.type() === "error") diagnostics.push(`console: ${message.text()}`);
     });
+    const account = await preflightPaidAccount(page);
     const draft = await createPaidSmokeDraft(
       page,
       harness.profile.initialProjectsDirectory,
       caseId,
     );
+    const permissionState = requireRecord(
+      await invokeIpc(page, "codex:permission:state:get", draft.projectId),
+      "Fresh Profile permission state",
+    );
+    expect(permissionState).toMatchObject({
+      mode: "guardian-approvals",
+      effectivePreset: "guardian-approvals",
+      approvalsReviewer: "auto_review",
+      autoReviewAvailable: true,
+    });
     const preflight = await preflightExecutionProfile(page, caseId);
     const selectedProfile = await selectExecutionProfile(page, preflight);
     await beforeSend({ page });
-    const threadId = await sendPrompt(page, draft.projectSessionId, prompt);
-    await waitForFinalMarker(page, marker);
+    threadId = await sendPrompt(page, draft.projectSessionId, prompt);
+    if (caseId === "browser") {
+      const threadPage = page;
+      const skills = (await invokeIpc(page, "codex:composer-skills:list", {
+        cwds: [harness.profile.initialProjectsDirectory],
+      })) as Array<Record<string, unknown>>;
+      if (skills.some((skill) => skill.name === "agent-browser")) {
+        throw new Error("Competing Agent Browser skill remained enabled after Thread launch");
+      }
+      if (!skills.some((skill) => skill.name === "browser:control-in-app-browser")) {
+        throw new Error("Browser plugin skill was not available after Thread launch");
+      }
+      const relevantSkills = skills.filter(
+        (skill) =>
+          skill.name === "agent-browser" || skill.name === "browser:control-in-app-browser",
+      );
+      await expect
+        .poll(
+          async () => {
+            const response = requireRecord(
+              await invokeIpc(threadPage, "codex:mcp-server-statuses:list", threadId),
+              "Thread MCP server statuses",
+            );
+            const statuses = Array.isArray(response.data) ? response.data.filter(isRecord) : [];
+            const nodeReplStatus = statuses.find((status) => status.name === "node_repl") ?? null;
+            runtimePreflight = {
+              skills: relevantSkills.map((skill) => ({
+                name: skill.name ?? null,
+                scope: skill.scope ?? null,
+              })),
+              mcpServers: statuses.map((status) => ({
+                name: status.name ?? null,
+                runtimeStatus: status.runtimeStatus ?? null,
+                tools: isRecord(status.tools) ? Object.keys(status.tools).sort() : [],
+              })),
+            };
+            const hasJavaScriptTool =
+              isRecord(nodeReplStatus?.tools) && "js" in nodeReplStatus.tools;
+            return `${String(nodeReplStatus?.runtimeStatus ?? "missing")}:${String(hasJavaScriptTool)}`;
+          },
+          { timeout: 30_000 },
+        )
+        .toBe("connected:true");
+    }
+    await waitForCompletedAgentTurn(page, threadId, 150_000);
+    await waitForAgentFinalMarker(page, marker, 10_000);
     const completed = await readCompletedThreadEvidence(page, threadId, selectedProfile);
-    const childThreadIds = collectReceiverThreadIds(completed.snapshot);
-    expect(childThreadIds).toHaveLength(
-      PAID_AGENT_SMOKE_DEFINITIONS[caseId].maximumAgentExecutions - 1,
-    );
     const rollout = await readPaidAgentRolloutEvidence(harness.profile.codexHome, threadId);
     expect(rollout).not.toBeNull();
     expect(rollout?.modelProvider).toBe("openai");
-    expect(rollout?.turnContexts).toHaveLength(1);
-    expect(rollout?.turnContexts[0]).toMatchObject({
-      model: selectedProfile.modelId,
-      effort: selectedProfile.reasoningEffort,
-    });
+    // A multi-agent runtime records descendant work in the root session rollout. Anchor the
+    // provider cross-check to the root Turn selected by the canonical Thread snapshot.
+    expect(rollout?.turnContexts.filter((context) => context.turnId === completed.turnId)).toEqual([
+      expect.objectContaining({
+        turnId: completed.turnId,
+        model: selectedProfile.modelId,
+        effort: selectedProfile.reasoningEffort,
+      }),
+    ]);
     result = {
       schemaVersion: 1,
       case: caseId,
-      maximumAgentExecutions: PAID_AGENT_SMOKE_DEFINITIONS[caseId].maximumAgentExecutions,
+      account,
+      disabledSkillNames: PAID_AGENT_SMOKE_DISABLED_SKILL_NAMES,
+      expectedLogicalExecutions: PAID_AGENT_SMOKE_DEFINITIONS[caseId].expectedLogicalExecutions,
       executionProfile: selectedProfile,
+      permissionMode: permissionState.mode,
       projectSessionId: draft.projectSessionId,
       threadId,
       rollout,
       ...(await verify({
-        childThreadIds,
         codexHome: harness.profile.codexHome,
         page,
         profile: selectedProfile,
@@ -484,6 +558,15 @@ const runPaidCase = async (
       await page
         .screenshot({ path: testInfo.outputPath("final.png"), fullPage: true })
         .catch(() => undefined);
+      result = {
+        ...result,
+        runtimeState: await readRuntimeStateEvidence(
+          page,
+          threadId,
+          harness.profile.codexHome,
+          caseId,
+        ).catch((error) => ({ unavailable: sanitizeFailure(error) })),
+      };
     }
     await harness.stopElectron().catch((error) => diagnostics.push(`shutdown: ${String(error)}`));
     const runtimeLogs = await readBoundedElectronRuntimeLogs(harness.profile).catch(
@@ -491,10 +574,14 @@ const runPaidCase = async (
     );
     const evidence = {
       ...result,
+      ...(runtimePreflight ? { runtimePreflight } : {}),
       durationMs: Date.now() - startedAt,
       diagnostics,
       failed: Boolean(failure),
+      ...(failure ? { failure: sanitizeFailure(failure) } : {}),
     };
+    const runtimeLogPath = testInfo.outputPath("runtime.log");
+    fs.writeFileSync(runtimeLogPath, runtimeLogs);
     fs.writeFileSync(
       testInfo.outputPath("evidence.json"),
       `${JSON.stringify(evidence, null, 2)}\n`,
@@ -504,7 +591,7 @@ const runPaidCase = async (
       contentType: "application/json",
     });
     await testInfo.attach("paid-agent-runtime-logs", {
-      body: runtimeLogs,
+      path: runtimeLogPath,
       contentType: "text/plain",
     });
   } catch (error) {
@@ -557,44 +644,12 @@ test("creates and verifies exact file bytes @paid-agent-file", async ({}, testIn
   }
 });
 
-const startBrowserFixture = async (
-  marker: string,
-): Promise<{
-  close: () => Promise<void>;
-  requests: string[];
-  url: string;
-}> => {
-  const requests: string[] = [];
-  const server = http.createServer((request, response) => {
-    requests.push(request.url ?? "");
-    response.writeHead(200, {
-      "cache-control": "no-store",
-      "content-type": "text/html; charset=utf-8",
-    });
-    response.end(`<html><head><title>${marker}</title></head><body>${marker}</body></html>`);
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Browser fixture returned no port");
-  return {
-    requests,
-    url: `http://127.0.0.1:${address.port}/paid-browser-smoke`,
-    close: async () =>
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      ),
-  };
-};
-
 test("opens a local fixture through Browser Use @paid-agent-browser", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const token = randomUUID();
   const pageMarker = `NODEX_BROWSER_FIXTURE_${token}`;
   const finalMarker = `PAID_BROWSER_SMOKE_OK_${token}`;
-  const fixture = await startBrowserFixture(pageMarker);
+  const fixture = await startBrowserHttpFixture(pageMarker);
   try {
     await runPaidCase(
       "browser",
@@ -602,7 +657,7 @@ test("opens a local fixture through Browser Use @paid-agent-browser", async ({},
       finalMarker,
       testInfo,
       async ({ page, projectSessionId, snapshot, threadId }) => {
-        expect(fixture.requests).toContain("/paid-browser-smoke");
+        expect(fixture.requests).toContain("/browser-smoke");
         const events = await capturedEvents(page);
         const browserTabs = events.browserStates.flatMap((state) =>
           isRecord(state) && Array.isArray(state.tabs) ? state.tabs : [],
@@ -658,11 +713,9 @@ test("spawns exactly one child and converges to Done @paid-agent-subagent", asyn
       `Spawn exactly one subagent. Ask that child to create ${childPath} with exact UTF-8 contents ${JSON.stringify(childContents)}, verify the file with a tool, and report CHILD_DONE_${token}. Wait for that child to finish. Do not spawn any other subagent. Then finish with the exact marker ${finalMarker}.`,
       finalMarker,
       testInfo,
-      async ({ childThreadIds, codexHome, page, threadId }) => {
+      async ({ codexHome, page, threadId }) => {
         const bytes = fs.readFileSync(childPath);
         expect(bytes.equals(Buffer.from(childContents))).toBe(true);
-        const childThreadId = childThreadIds[0];
-        if (!childThreadId) throw new Error("Subagent smoke returned no child thread id");
 
         await expect
           .poll(
@@ -676,11 +729,14 @@ test("spawns exactly one child and converges to Done @paid-agent-subagent", asyn
                 active: value.active.knownCount,
                 completeness: value.completeness,
                 done: value.done.knownCount,
+                rowCount:
+                  (Array.isArray(value.active.rows) ? value.active.rows.length : 0) +
+                  (Array.isArray(value.done.rows) ? value.done.rows.length : 0),
               };
             },
             { timeout: 30_000 },
           )
-          .toEqual({ active: 0, completeness: "complete", done: 1 });
+          .toEqual({ active: 0, completeness: "complete", done: 1, rowCount: 1 });
         const overview = await invokeIpc(page, "codex:subagents:overview:read", {
           rootThreadId: threadId,
           mode: "expanded",
@@ -689,6 +745,14 @@ test("spawns exactly one child and converges to Done @paid-agent-subagent", asyn
           isRecord(overview) && isRecord(overview.active) ? overview.active.rows : null;
         const doneRows = isRecord(overview) && isRecord(overview.done) ? overview.done.rows : null;
         expect(activeRows).toEqual([]);
+        expect(doneRows).toHaveLength(
+          PAID_AGENT_SMOKE_DEFINITIONS.subagent.expectedLogicalExecutions - 1,
+        );
+        const childThreadId =
+          Array.isArray(doneRows) && isRecord(doneRows[0]) ? doneRows[0].threadId : null;
+        if (typeof childThreadId !== "string") {
+          throw new Error("Canonical Subagent overview returned no child Thread id");
+        }
         expect(doneRows).toEqual([
           expect.objectContaining({
             threadId: childThreadId,

@@ -1,4 +1,3 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import os from "node:os";
@@ -6,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import { V2TurnCompletedNotification } from "@nodex/effect-codex-app-server/schema";
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
 import { ScopedCallbackRuntime } from "../src/main/app/ScopedCallbackRuntime";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
@@ -14,10 +15,20 @@ import {
   runCodexProbeMain,
   withCodexProbeSession,
 } from "./codex-probe-session";
+import {
+  responses,
+  type ScriptedModelHttpResponse,
+  type ScriptedModelProviderConfig,
+  type ScriptedModelRequest,
+  scriptedModelResponse,
+  withScriptedModelServer,
+} from "./scenarios/runtime/scripted-model-server";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
 const conformanceText = "NODEX_WIRE_CONFORMANCE_OK";
+const toolConformancePrompt = "NODEX_WIRE_TOOL_ROUND_TRIP";
+const toolConformanceCallId = "call_nodex_wire_tool_round_trip";
 const requestTimeoutMs = 30_000;
 const temporaryRootCleanupRetries = 10;
 const temporaryRootCleanupRetryDelayMs = 100;
@@ -36,16 +47,11 @@ type WireCase = {
   readonly multiAgentPlacement?: MultiAgentPlacement;
   readonly multiAgentV2FeatureEnabled?: boolean;
   readonly providerId: string;
+  readonly responsesWebSockets?: boolean;
   readonly toolNamespace?: string;
+  readonly toolRoundTrip?: boolean;
   readonly waitAgentEnabled?: boolean;
   readonly wireApi: WireApi;
-};
-
-type RecordedRequest = {
-  readonly authorizationScheme: string | null;
-  readonly body: Record<string, unknown>;
-  readonly credentialHeader: "authorization" | "x-api-key" | null;
-  readonly path: string;
 };
 
 type WireCaseResult = {
@@ -66,6 +72,8 @@ type WireCaseResult = {
   readonly requestHasTools: boolean;
   readonly requestCount: number;
   readonly responseTextObserved: boolean;
+  readonly transport: "http" | "websocket";
+  readonly toolRoundTrip: boolean;
   readonly threadId: string;
   readonly toolNamespace: string;
   readonly waitAgentEnabled: boolean;
@@ -108,6 +116,14 @@ const wireCases: readonly WireCase[] = [
     providerId: "nodex-mock-responses",
     modelId: "mock-responses-model",
     harnessId: "native",
+    wireApi: "responses",
+  },
+  {
+    providerId: "nodex-mock-responses-websocket",
+    modelId: "mock-responses-websocket-model",
+    harnessId: "native",
+    responsesWebSockets: true,
+    toolRoundTrip: true,
     wireApi: "responses",
   },
   {
@@ -204,75 +220,68 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-  if (!isRecord(parsed)) throw new Error("Wire conformance received a non-object request body");
-  return parsed;
-}
-
-function sendSse(response: ServerResponse, chunks: readonly string[]): void {
-  response.writeHead(200, {
-    "cache-control": "no-cache",
-    "content-type": "text/event-stream",
-  });
-  response.end(chunks.join(""));
-}
-
-function respondToWireRequest(wireApi: WireApi, response: ServerResponse): void {
+function respondToWireRequest(wireApi: WireApi): ScriptedModelHttpResponse {
   if (wireApi === "responses") {
-    sendSse(response, [
-      'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_nodex_wire"}}\n\n',
-      `event: response.output_item.done\ndata: ${JSON.stringify({
-        type: "response.output_item.done",
-        item: {
-          type: "message",
-          role: "assistant",
-          content: [{ type: "output_text", text: conformanceText }],
-        },
-      })}\n\n`,
-      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_nodex_wire","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}\n\n',
+    return responses.stream([
+      responses.created("resp_nodex_wire"),
+      responses.assistantMessage("message_nodex_wire", conformanceText),
+      responses.completed("resp_nodex_wire"),
     ]);
-    return;
   }
 
   if (wireApi === "chat") {
-    sendSse(response, [
-      `data: ${JSON.stringify({
-        id: "chatcmpl_nodex_wire",
-        object: "chat.completion.chunk",
-        created: 0,
-        model: "mock-chat-model",
-        choices: [
-          { index: 0, delta: { role: "assistant", content: conformanceText }, finish_reason: null },
-        ],
-      })}\n\n`,
-      `data: ${JSON.stringify({
-        id: "chatcmpl_nodex_wire",
-        object: "chat.completion.chunk",
-        created: 0,
-        model: "mock-chat-model",
-        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-      })}\n\n`,
-      "data: [DONE]\n\n",
+    return scriptedModelResponse.sse([
+      {
+        data: {
+          id: "chatcmpl_nodex_wire",
+          object: "chat.completion.chunk",
+          created: 0,
+          model: "mock-chat-model",
+          choices: [
+            {
+              index: 0,
+              delta: { role: "assistant", content: conformanceText },
+              finish_reason: null,
+            },
+          ],
+        },
+      },
+      {
+        data: {
+          id: "chatcmpl_nodex_wire",
+          object: "chat.completion.chunk",
+          created: 0,
+          model: "mock-chat-model",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        },
+      },
+      { data: "[DONE]" },
     ]);
-    return;
   }
 
-  sendSse(response, [
-    'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_nodex_wire","model":"mock-claude-model","usage":{"input_tokens":1}}}\n\n',
-    'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
-    `event: content_block_delta\ndata: ${JSON.stringify({
-      type: "content_block_delta",
-      index: 0,
-      delta: { type: "text_delta", text: conformanceText },
-    })}\n\n`,
-    'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
-    'event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":1}}\n\n',
-    'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+  return scriptedModelResponse.sse([
+    {
+      event: "message_start",
+      data: {
+        type: "message_start",
+        message: { id: "msg_nodex_wire", model: "mock-claude-model", usage: { input_tokens: 1 } },
+      },
+    },
+    {
+      event: "content_block_start",
+      data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+    },
+    {
+      event: "content_block_delta",
+      data: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: conformanceText },
+      },
+    },
+    { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+    { event: "message_delta", data: { type: "message_delta", usage: { output_tokens: 1 } } },
+    { event: "message_stop", data: { type: "message_stop" } },
   ]);
 }
 
@@ -281,59 +290,6 @@ function wireApiForPath(urlPath: string): WireApi | null {
   if (urlPath.endsWith("/chat/completions")) return "chat";
   if (urlPath.endsWith("/messages")) return "messages";
   return null;
-}
-
-async function startMockServer(): Promise<{
-  readonly baseUrl: string;
-  readonly close: () => Promise<void>;
-  readonly requests: RecordedRequest[];
-}> {
-  const requests: RecordedRequest[] = [];
-  const server = createServer((request, response) => {
-    void (async () => {
-      const urlPath = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-      const wireApi = wireApiForPath(urlPath);
-      if (request.method !== "POST" || !wireApi) {
-        response.writeHead(404, { "content-type": "application/json" });
-        response.end('{"error":"not found"}');
-        return;
-      }
-      const body = await readJsonBody(request);
-      const authorization = request.headers.authorization;
-      requests.push({
-        authorizationScheme: authorization?.split(" ", 1)[0] ?? null,
-        body,
-        credentialHeader: authorization
-          ? "authorization"
-          : typeof request.headers["x-api-key"] === "string"
-            ? "x-api-key"
-            : null,
-        path: urlPath,
-      });
-      respondToWireRequest(wireApi, response);
-    })().catch((error: unknown) => {
-      response.writeHead(500, { "content-type": "application/json" });
-      response.end(
-        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
-      );
-    });
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
-  const address = server.address();
-  if (!address || typeof address === "string")
-    throw new Error("Mock wire server did not bind a TCP port");
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    close: async () =>
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      }),
-    requests,
-  };
 }
 
 function waitForTurnCompletion(
@@ -358,6 +314,14 @@ function waitForTurnCompletion(
       }
       if (notification.method !== "turn/completed") return;
       cleanup();
+      try {
+        Schema.decodeUnknownSync(V2TurnCompletedNotification)(params);
+      } catch (error) {
+        reject(
+          new Error(`Generated turn/completed schema rejected runtime payload`, { cause: error }),
+        );
+        return;
+      }
       const turn = isRecord(params.turn) ? params.turn : {};
       if (turn.status !== "completed") {
         reject(
@@ -488,14 +452,14 @@ function readCodeModeNestedMultiAgentV2Tools(
 }
 
 async function runWireCase(input: {
-  readonly baseUrl: string;
   readonly client: CodexProbeClient;
   readonly cwd: string;
-  readonly requests: RecordedRequest[];
+  readonly providerConfig: (providerId: string, wireApi: WireApi) => ScriptedModelProviderConfig;
+  readonly requests: () => readonly ScriptedModelRequest[];
   readonly resumeThreadId?: string;
   readonly wireCase: WireCase;
 }): Promise<WireCaseResult> {
-  const requestStart = input.requests.length;
+  const requestStart = input.requests().length;
   const multiAgentV2FeatureEnabled = input.wireCase.multiAgentV2FeatureEnabled ?? true;
   const expectedMultiAgentVersion =
     input.wireCase.expectedMultiAgentVersion ?? (multiAgentV2FeatureEnabled ? "v2" : "disabled");
@@ -503,15 +467,10 @@ async function runWireCase(input: {
   const multiAgentPlacement = input.wireCase.multiAgentPlacement ?? "direct";
   const toolNamespace = input.wireCase.toolNamespace ?? "collaboration";
   const waitAgentEnabled = input.wireCase.waitAgentEnabled ?? true;
-  const providerBaseUrl =
-    input.wireCase.wireApi === "messages" ? input.baseUrl : `${input.baseUrl}/v1`;
   const providerConfig = {
-    name: input.wireCase.providerId,
-    base_url: providerBaseUrl,
+    ...input.providerConfig(input.wireCase.providerId, input.wireCase.wireApi),
     env_key: "NODEX_WIRE_CONFORMANCE_API_KEY",
-    wire_api: input.wireCase.wireApi,
-    request_max_retries: 0,
-    stream_max_retries: 0,
+    supports_websockets: input.wireCase.responsesWebSockets ?? false,
   };
   const threadConfig = {
     [`model_providers.${input.wireCase.providerId}`]: providerConfig,
@@ -568,17 +527,53 @@ async function runWireCase(input: {
   const completion = waitForTurnCompletion(input.client, threadId);
   await input.client.request("turn/start", {
     threadId,
-    input: [{ type: "text", text: `Reply exactly ${conformanceText}`, text_elements: [] }],
+    input: [
+      {
+        type: "text",
+        text: input.wireCase.toolRoundTrip
+          ? toolConformancePrompt
+          : `Reply exactly ${conformanceText}`,
+        text_elements: [],
+      },
+    ],
   });
   const result = await completion;
-  const recorded = input.requests.slice(requestStart);
+  const recorded = input.requests().slice(requestStart);
   if (recorded.length === 0) {
     throw new Error(
       `Expected at least one ${input.wireCase.wireApi} request for ${input.wireCase.providerId}`,
     );
   }
-  const request = recorded.find((candidate) => candidate.body.model === input.wireCase.modelId);
+  const generationRequests = recorded.filter((candidate) => candidate.isGenerationRequest());
+  const request = generationRequests.find(
+    (candidate) => candidate.body.model === input.wireCase.modelId,
+  );
   if (!request) throw new Error(`Missing recorded request for ${input.wireCase.providerId}`);
+  const expectedGenerationMethod = input.wireCase.responsesWebSockets ? "WEBSOCKET" : "POST";
+  const wrongTransport = generationRequests.find(
+    (candidate) => candidate.method !== expectedGenerationMethod,
+  );
+  if (wrongTransport) {
+    throw new Error(
+      `${input.wireCase.providerId} generated over ${wrongTransport.method}; expected ${expectedGenerationMethod}`,
+    );
+  }
+  const prewarmRequests = recorded.filter((candidate) => !candidate.isGenerationRequest());
+  if (input.wireCase.responsesWebSockets) {
+    if (
+      prewarmRequests.length !== 1 ||
+      prewarmRequests[0]?.method !== "WEBSOCKET" ||
+      generationRequests.some(
+        (candidate) => candidate.connectionId !== prewarmRequests[0]?.connectionId,
+      )
+    ) {
+      throw new Error(
+        `${input.wireCase.providerId} did not generate on its single prewarmed WebSocket connection`,
+      );
+    }
+  } else if (prewarmRequests.length > 0) {
+    throw new Error(`${input.wireCase.providerId} unexpectedly issued a prewarm request`);
+  }
   const expectedPath =
     input.wireCase.wireApi === "responses"
       ? "/v1/responses"
@@ -598,42 +593,48 @@ async function runWireCase(input: {
   }
   const expectedCredentialHeader =
     input.wireCase.wireApi === "messages" ? "x-api-key" : "authorization";
-  if (request.credentialHeader !== expectedCredentialHeader) {
+  const credentialHeader = request.header("authorization")
+    ? "authorization"
+    : request.header("x-api-key")
+      ? "x-api-key"
+      : null;
+  if (credentialHeader !== expectedCredentialHeader) {
     throw new Error(
-      `${input.wireCase.providerId} used credential header ${String(request.credentialHeader)}; expected ${expectedCredentialHeader}`,
+      `${input.wireCase.providerId} used credential header ${String(credentialHeader)}; expected ${expectedCredentialHeader}`,
     );
   }
-  if (!requestHasTools(request.body)) {
+  const assertedBody = { ...request.body, tools: request.effectiveTools() };
+  if (!requestHasTools(assertedBody)) {
     throw new Error(`${input.wireCase.providerId} omitted the Codex-compatible tool catalog`);
   }
   const multiAgentTools = (() => {
     if (input.wireCase.harnessId !== "native") return { v1: [], v2: [] };
     if (expectedMultiAgentVersion === "disabled") {
-      assertMultiAgentV2Absent(request.body, toolNamespace);
-      assertMultiAgentV1Absent(request.body);
+      assertMultiAgentV2Absent(assertedBody, toolNamespace);
+      assertMultiAgentV1Absent(assertedBody);
       return { v1: [], v2: [] };
     }
     if (expectedMultiAgentVersion === "v1") {
-      assertMultiAgentV2Absent(request.body, toolNamespace);
-      return { v1: readMultiAgentV1Tools(request.body), v2: [] };
+      assertMultiAgentV2Absent(assertedBody, toolNamespace);
+      return { v1: readMultiAgentV1Tools(assertedBody), v2: [] };
     }
-    assertMultiAgentV1Absent(request.body);
+    assertMultiAgentV1Absent(assertedBody);
     if (multiAgentPlacement === "code-mode-nested") {
       return {
         v1: [],
-        v2: readCodeModeNestedMultiAgentV2Tools(request.body, toolNamespace, waitAgentEnabled),
+        v2: readCodeModeNestedMultiAgentV2Tools(assertedBody, toolNamespace, waitAgentEnabled),
       };
     }
     return {
       v1: [],
-      v2: readMultiAgentV2Tools(request.body, toolNamespace, waitAgentEnabled),
+      v2: readMultiAgentV2Tools(assertedBody, toolNamespace, waitAgentEnabled),
     };
   })();
   return {
     agentsEnabled: input.wireCase.agentsEnabled ?? true,
-    authorizationScheme: request.authorizationScheme,
+    authorizationScheme: request.header("authorization")?.split(" ", 1)[0] ?? null,
     collabFeatureEnabled: input.wireCase.collabFeatureEnabled ?? null,
-    credentialHeader: request.credentialHeader,
+    credentialHeader,
     harnessId: input.wireCase.harnessId,
     modelId: input.wireCase.modelId,
     multiAgentPlacement,
@@ -645,9 +646,11 @@ async function runWireCase(input: {
     multiAgentV2Tools: multiAgentTools.v2,
     path: request.path,
     providerId: input.wireCase.providerId,
-    requestHasTools: requestHasTools(request.body),
+    requestHasTools: requestHasTools(assertedBody),
     requestCount: recorded.length,
     responseTextObserved: result.responseTextObserved,
+    transport: expectedGenerationMethod === "WEBSOCKET" ? "websocket" : "http",
+    toolRoundTrip: input.wireCase.toolRoundTrip ?? false,
     threadId,
     toolNamespace,
     waitAgentEnabled,
@@ -675,111 +678,156 @@ async function probeAgentRuntimeWirePromise(
   const cwd = path.join(temporaryRoot, "workspace");
   mkdirSync(stateHome, { recursive: true, mode: 0o700 });
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
-  const server = await startMockServer();
   try {
-    const sessionOptions = {
-      binaryPath: input.binaryPath,
-      requestTimeout: requestTimeoutMs,
-      expectedCodexHome: stateHome,
-      env: {
-        ...process.env,
-        INTERPRETER_HOME: stateHome,
-        NODEX_WIRE_CONFORMANCE_API_KEY: "nodex-wire-secret",
+    return await withScriptedModelServer(
+      {
+        exchanges: [
+          {
+            name: "wire conformance response",
+            expectedCalls:
+              wireCases.length + wireCases.filter((wireCase) => wireCase.toolRoundTrip).length + 4,
+            // Some provider adapters make a capability/preflight request. The semantic
+            // assertions below own the exact requests that matter; keep only a narrow
+            // transport-level ceiling here so adapter plumbing does not make the probe brittle.
+            maximumCalls:
+              wireCases.length + wireCases.filter((wireCase) => wireCase.toolRoundTrip).length + 6,
+            match: (request) => wireApiForPath(request.path) !== null,
+            respond: (request) => {
+              const wireApi = wireApiForPath(request.path);
+              if (!wireApi) throw new Error(`Unsupported wire path ${request.path}`);
+              if (request.hasFunctionCallOutput(toolConformanceCallId)) {
+                const output = request.functionCallOutput(toolConformanceCallId);
+                if (!JSON.stringify(output).includes("NODEX_WIRE_TOOL_OK")) {
+                  throw new Error("Agent runtime tool output omitted NODEX_WIRE_TOOL_OK");
+                }
+                return responses.stream([
+                  responses.created("resp_nodex_wire_tool_final"),
+                  responses.assistantMessage("message_nodex_wire_tool", conformanceText),
+                  responses.completed("resp_nodex_wire_tool_final"),
+                ]);
+              }
+              if (request.hasInputText(toolConformancePrompt)) {
+                return responses.stream([
+                  responses.created("resp_nodex_wire_tool"),
+                  responses.functionCall(toolConformanceCallId, "exec_command", {
+                    cmd: "printf NODEX_WIRE_TOOL_OK",
+                    yield_time_ms: 10_000,
+                  }),
+                  responses.completed("resp_nodex_wire_tool"),
+                ]);
+              }
+              return respondToWireRequest(wireApi);
+            },
+          },
+        ],
       },
-      clientInfo: {
-        name: "nodex-agent-runtime-wire-conformance",
-        title: "Nodex Agent Runtime Wire Conformance",
-        version: "1.0.0",
-      },
-    } as const;
-    const initial = await callbacks.runPromise(
-      withCodexProbeSession(callbacks, sessionOptions, async (client) => {
-        const results: WireCaseResult[] = [];
-        for (const wireCase of wireCases) {
-          results.push(
-            await runWireCase({
-              baseUrl: server.baseUrl,
+      async (server) => {
+        const sessionOptions = {
+          binaryPath: input.binaryPath,
+          requestTimeout: requestTimeoutMs,
+          expectedCodexHome: stateHome,
+          env: {
+            ...process.env,
+            ...server.loopbackEnvironment(),
+            INTERPRETER_HOME: stateHome,
+            NODEX_WIRE_CONFORMANCE_API_KEY: "nodex-wire-secret",
+          },
+          clientInfo: {
+            name: "nodex-agent-runtime-wire-conformance",
+            title: "Nodex Agent Runtime Wire Conformance",
+            version: "1.0.0",
+          },
+        } as const;
+        const initial = await callbacks.runPromise(
+          withCodexProbeSession(callbacks, sessionOptions, async (client) => {
+            const results: WireCaseResult[] = [];
+            for (const wireCase of wireCases) {
+              results.push(
+                await runWireCase({
+                  client,
+                  cwd,
+                  providerConfig: (providerId, wireApi) =>
+                    server.providerConfig(providerId, wireApi),
+                  requests: () => server.requests(),
+                  wireCase,
+                }),
+              );
+            }
+            const persistedV2 = await runWireCase({
               client,
               cwd,
-              requests: server.requests,
-              wireCase,
-            }),
-          );
+              providerConfig: (providerId, wireApi) => server.providerConfig(providerId, wireApi),
+              requests: () => server.requests(),
+              wireCase: persistedMultiAgentV2Case,
+            });
+            const persistedV1 = await runWireCase({
+              client,
+              cwd,
+              providerConfig: (providerId, wireApi) => server.providerConfig(providerId, wireApi),
+              requests: () => server.requests(),
+              wireCase: persistedMultiAgentV1Case,
+            });
+            return { persistedV1, persistedV2, results };
+          }),
+        );
+        const resumed = await callbacks.runPromise(
+          withCodexProbeSession(callbacks, sessionOptions, async (client) => {
+            const v2 = await runWireCase({
+              client,
+              cwd,
+              providerConfig: (providerId, wireApi) => server.providerConfig(providerId, wireApi),
+              requests: () => server.requests(),
+              resumeThreadId: initial.persistedV2.threadId,
+              wireCase: {
+                ...persistedMultiAgentV2Case,
+                expectedMultiAgentVersion: "v2",
+                multiAgentV2FeatureEnabled: false,
+              },
+            });
+            const v1 = await runWireCase({
+              client,
+              cwd,
+              providerConfig: (providerId, wireApi) => server.providerConfig(providerId, wireApi),
+              requests: () => server.requests(),
+              resumeThreadId: initial.persistedV1.threadId,
+              wireCase: {
+                ...persistedMultiAgentV1Case,
+                // A persisted V1 selector must survive even when no current feature would choose V1.
+                collabFeatureEnabled: false,
+              },
+            });
+            return { v1, v2 };
+          }),
+        );
+        const cases = [
+          ...initial.results,
+          initial.persistedV2,
+          initial.persistedV1,
+          resumed.v2,
+          resumed.v1,
+        ];
+        const report: AgentRuntimeWireConformanceReport = {
+          binaryPath: path.resolve(input.binaryPath),
+          cases,
+          generatedAt: new Date().toISOString(),
+          isolatedPerThreadConfig: "pass",
+          multiAgentDirectModelAndCodeModeSelection: "pass",
+          multiAgentV2ToolSelection: "pass",
+          nativeSelectionMatrix: "pass",
+          persistedLegacyV1ResumeSelection: "pass",
+          persistedResumeSelection: "pass",
+        };
+        if (input.outputPath) {
+          mkdirSync(path.dirname(input.outputPath), { recursive: true });
+          writeFileSync(input.outputPath, `${JSON.stringify(report, null, 2)}\n`, {
+            encoding: "utf8",
+            mode: 0o600,
+          });
         }
-        const persistedV2 = await runWireCase({
-          baseUrl: server.baseUrl,
-          client,
-          cwd,
-          requests: server.requests,
-          wireCase: persistedMultiAgentV2Case,
-        });
-        const persistedV1 = await runWireCase({
-          baseUrl: server.baseUrl,
-          client,
-          cwd,
-          requests: server.requests,
-          wireCase: persistedMultiAgentV1Case,
-        });
-        return { persistedV1, persistedV2, results };
-      }),
+        return report;
+      },
     );
-    const resumed = await callbacks.runPromise(
-      withCodexProbeSession(callbacks, sessionOptions, async (client) => {
-        const v2 = await runWireCase({
-          baseUrl: server.baseUrl,
-          client,
-          cwd,
-          requests: server.requests,
-          resumeThreadId: initial.persistedV2.threadId,
-          wireCase: {
-            ...persistedMultiAgentV2Case,
-            expectedMultiAgentVersion: "v2",
-            multiAgentV2FeatureEnabled: false,
-          },
-        });
-        const v1 = await runWireCase({
-          baseUrl: server.baseUrl,
-          client,
-          cwd,
-          requests: server.requests,
-          resumeThreadId: initial.persistedV1.threadId,
-          wireCase: {
-            ...persistedMultiAgentV1Case,
-            // A persisted V1 selector must survive even when no current feature would choose V1.
-            collabFeatureEnabled: false,
-          },
-        });
-        return { v1, v2 };
-      }),
-    );
-    const cases = [
-      ...initial.results,
-      initial.persistedV2,
-      initial.persistedV1,
-      resumed.v2,
-      resumed.v1,
-    ];
-    const report: AgentRuntimeWireConformanceReport = {
-      binaryPath: path.resolve(input.binaryPath),
-      cases,
-      generatedAt: new Date().toISOString(),
-      isolatedPerThreadConfig: "pass",
-      multiAgentDirectModelAndCodeModeSelection: "pass",
-      multiAgentV2ToolSelection: "pass",
-      nativeSelectionMatrix: "pass",
-      persistedLegacyV1ResumeSelection: "pass",
-      persistedResumeSelection: "pass",
-    };
-    if (input.outputPath) {
-      mkdirSync(path.dirname(input.outputPath), { recursive: true });
-      writeFileSync(input.outputPath, `${JSON.stringify(report, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
-    }
-    return report;
   } finally {
-    await server.close();
     await rm(temporaryRoot, {
       recursive: true,
       force: true,

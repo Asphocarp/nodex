@@ -14,6 +14,7 @@ import type { DesktopProjectWorkspaceThread } from "../core-client/project-works
 import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
 import { CodexThreadStatusSchema } from "../../shared/schemas/codex";
 import { hasCodexSubagentSource } from "../../shared/codex-subagent-metadata";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 
 export interface ParsedThreadStatus {
   readonly statusType: CodexThreadStatusType;
@@ -222,7 +223,7 @@ export const projectCoreWorkspaceTask = (task: CoreWorkspaceTask): ProjectSessio
               modelId: task.thread.model_id,
               harnessId: task.thread.harness_id ?? null,
               reasoningEffort: task.thread.reasoning_effort ?? null,
-              serviceTier: task.thread.service_tier ?? null,
+              serviceTier: normalizeCodexServiceTier(task.thread.service_tier),
             }
           : null,
         executionHostId: task.thread.execution_host_id,
@@ -266,7 +267,7 @@ export const buildCoreWorkspaceTaskThreadSummary = (
         modelId: thread.model_id,
         harnessId: thread.harness_id ?? null,
         reasoningEffort: thread.reasoning_effort ?? null,
-        serviceTier: thread.service_tier ?? null,
+        serviceTier: normalizeCodexServiceTier(thread.service_tier),
       }
     : null,
   cwd: thread.cwd ?? null,
@@ -307,7 +308,7 @@ export const buildCoreWorkspaceThreadSummary = (
         modelId: thread.model_id,
         harnessId: thread.harness_id ?? null,
         reasoningEffort: thread.reasoning_effort ?? null,
-        serviceTier: thread.service_tier ?? null,
+        serviceTier: normalizeCodexServiceTier(thread.service_tier),
       }
     : null,
   cwd: thread.cwd ?? null,

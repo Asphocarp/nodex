@@ -9,20 +9,6 @@ export const CODEX_FEATURE_DEFAULTS = {
   unified_exec: true,
   shell_snapshot: true,
   multi_agent: true,
-  multi_agent_v2: {
-    enabled: true,
-    // smol-toml distinguishes TOML integers from floats through bigint when
-    // numbersAsFloat is enabled to preserve unrelated user-authored floats.
-    max_concurrent_threads_per_session: 4n,
-    min_wait_timeout_ms: 10_000n,
-    default_wait_timeout_ms: 30_000n,
-    max_wait_timeout_ms: 3_600_000n,
-    tool_namespace: "collaboration",
-    hide_spawn_agent_metadata: false,
-    expose_spawn_agent_model_overrides: true,
-    wait_agent_enabled: true,
-    non_code_mode_only: false,
-  },
   prevent_idle_sleep: true,
   respect_system_proxy: true,
 } as const;

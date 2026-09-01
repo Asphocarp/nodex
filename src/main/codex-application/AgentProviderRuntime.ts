@@ -15,6 +15,7 @@ import type {
   AgentProviderOption,
 } from "../../shared/agent-runtime";
 import { cappedApproximateValueBytes } from "../../shared/codex-bounded-value-size";
+import { normalizeAgentExecutionProfile } from "../../shared/codex-service-tier";
 import {
   parseHarnessResponse,
   parseModelResponse,
@@ -257,19 +258,24 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
         list,
         resolveExecutionProfile: (requested) =>
           Effect.gen(function* () {
+            const canonicalRequested = normalizeAgentExecutionProfile(requested);
             const catalog = yield* list();
-            const provider = catalog.providers.find((item) => item.id === requested.providerId);
+            const provider = catalog.providers.find(
+              (item) => item.id === canonicalRequested.providerId,
+            );
             if (!provider?.supportedByNodex) {
               return yield* projectionError(
                 "resolve-profile",
-                new Error(`Unsupported agent provider: ${requested.providerId}`),
+                new Error(`Unsupported agent provider: ${canonicalRequested.providerId}`),
               );
             }
-            const model = provider.models.find((item) => item.modelId === requested.modelId);
+            const model = provider.models.find(
+              (item) => item.modelId === canonicalRequested.modelId,
+            );
             if (model === undefined) {
               return yield* projectionError(
                 "resolve-profile",
-                new Error(`Agent model '${requested.modelId}' is unavailable`),
+                new Error(`Agent model '${canonicalRequested.modelId}' is unavailable`),
               );
             }
             if (!["ready", "inherited", "runtimeManaged"].includes(provider.credentialStatus)) {
@@ -280,7 +286,7 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
             }
             const reasoning = model.supportedReasoningEfforts.map((item) => item.value);
             const reasoningEffort =
-              requested.reasoningEffort ??
+              canonicalRequested.reasoningEffort ??
               (model.defaultReasoningEffort && reasoning.includes(model.defaultReasoningEffort)
                 ? model.defaultReasoningEffort
                 : (reasoning[0] ?? null));
@@ -291,10 +297,13 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
               );
             }
             const tiers = model.supportedServiceTiers.map((item) => item.value);
-            if (requested.serviceTier !== null && !tiers.includes(requested.serviceTier)) {
+            if (
+              canonicalRequested.serviceTier !== null &&
+              !tiers.includes(canonicalRequested.serviceTier)
+            ) {
               return yield* projectionError(
                 "resolve-profile",
-                new Error(`Service tier '${requested.serviceTier}' is unavailable`),
+                new Error(`Service tier '${canonicalRequested.serviceTier}' is unavailable`),
               );
             }
             const rawHarnesses = yield* requestInterpreter("interpreter/harness/list", {
@@ -306,7 +315,9 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
               catch: (cause) => projectionError("parse-harnesses", cause),
             });
             const requestedHarness =
-              requested.harnessId === provider.recommendedHarnessId ? null : requested.harnessId;
+              canonicalRequested.harnessId === provider.recommendedHarnessId
+                ? null
+                : canonicalRequested.harnessId;
             if (
               requestedHarness !== null &&
               !harnesses.some((harness) => harness.id === requestedHarness)
@@ -318,13 +329,13 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
             }
             const recommended = harnesses.find((harness) => harness.isRecommended);
             return {
-              providerId: requested.providerId,
-              modelId: requested.modelId,
+              providerId: canonicalRequested.providerId,
+              modelId: canonicalRequested.modelId,
               harnessId:
                 requestedHarness ??
                 (recommended ? (recommended.id ?? null) : provider.recommendedHarnessId),
               reasoningEffort,
-              serviceTier: requested.serviceTier,
+              serviceTier: canonicalRequested.serviceTier,
             };
           }),
         setCredential: (input) =>

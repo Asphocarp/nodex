@@ -188,10 +188,14 @@ test("writes a complete dual-architecture candidate without changing the current
   const fixture = makeFixture();
   const currentLockSource = readFileSync(fixture.lockPath, "utf8");
   const protocolSchemaSha256 = "9".repeat(64);
+  const fingerprintedBinaries: string[] = [];
   const releaseTag = "agent-runtime-v0.0.35-aaaaaaaa";
   const candidate = await writeAgentRuntimeRelockCandidate({
     ...fixture,
-    fingerprintSchema: () => protocolSchemaSha256,
+    fingerprintSchema: (binaryPath) => {
+      fingerprintedBinaries.push(binaryPath);
+      return protocolSchemaSha256;
+    },
     projectRootPath: fixture.projectRoot,
     releaseTag,
   });
@@ -205,6 +209,9 @@ test("writes a complete dual-architecture candidate without changing the current
   expect(candidate.source.patches[0]?.sha256).toBe(sha256("reviewed patch\n"));
   expect(candidate.notices.licenseSha256).toBe(sha256("license\n"));
   expect(candidate.notices.noticeSha256).toBe(sha256("notice\n"));
+  expect(fingerprintedBinaries).toHaveLength(2);
+  expect(fingerprintedBinaries.some((binaryPath) => binaryPath.includes("/arm64/"))).toBe(true);
+  expect(fingerprintedBinaries.some((binaryPath) => binaryPath.includes("/x64/"))).toBe(true);
 
   for (const targetArch of ["arm64", "x64"] as const) {
     const targetKey = `darwin-${targetArch}` as const;
@@ -269,4 +276,43 @@ test("rejects a release tag that names a different source revision before readin
       x64ArchivePath: path.join(fixture.projectRoot, "missing-x64.tar.gz"),
     }),
   ).rejects.toThrow("does not identify the locked source commit");
+});
+
+test("rejects architecture packages with different protocol schemas", async () => {
+  const fixture = makeFixture();
+  await expect(
+    createAgentRuntimeRelockCandidate({
+      ...fixture,
+      fingerprintSchema: (binaryPath) =>
+        binaryPath.includes("/arm64/") ? "9".repeat(64) : "8".repeat(64),
+      projectRootPath: fixture.projectRoot,
+      releaseTag: "agent-runtime-v0.0.35-aaaaaaaa",
+    }),
+  ).rejects.toThrow("architecture packages expose different protocol schemas");
+});
+
+test("rejects generated source-worktree caches from release evidence", async () => {
+  const fixture = makeFixture();
+  writeFileSync(
+    path.join(fixture.projectRoot, "resources/agent-runtime/patches/runtime.patch"),
+    [
+      "diff --git a/codex-rs/core/.zcode/oi-initial-git-status/session.txt b/codex-rs/core/.zcode/oi-initial-git-status/session.txt",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/codex-rs/core/.zcode/oi-initial-git-status/session.txt",
+      "@@ -0,0 +1 @@",
+      "+local worktree state",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  await expect(
+    createAgentRuntimeRelockCandidate({
+      ...fixture,
+      fingerprintSchema: () => "9".repeat(64),
+      projectRootPath: fixture.projectRoot,
+      releaseTag: "agent-runtime-v0.0.35-aaaaaaaa",
+    }),
+  ).rejects.toThrow("source patch contains generated cache path");
 });

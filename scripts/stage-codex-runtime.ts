@@ -245,6 +245,7 @@ function readReusableRuntime(input: {
     ...input.lock.requiredArtifacts,
     "third-party/open-interpreter/LICENSE",
     "third-party/open-interpreter/NOTICE",
+    ...input.lock.source.patches.map((patch) => patch.artifactPath),
   ].sort((left, right) => left.localeCompare(right));
   if (
     JSON.stringify(metadata.artifacts.map(({ path }) => path)) !== JSON.stringify(expectedPaths)

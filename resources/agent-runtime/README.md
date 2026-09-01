@@ -72,10 +72,13 @@ repository root. Build into disposable, architecture-specific directories;
 the gzip archives retain package timestamps and must always be hashed as new
 artifacts rather than assumed reproducible from a previous build.
 
-Before packaging, validate the patched source from `codex-rs`. The focused
-tests are part of the source overlay so the mailbox, spawn transaction, and
-completion-delivery policies remain reviewable independently of the desktop
-adapter:
+Before packaging, validate the patched source from `codex-rs`. The source tree
+must be clean apart from reviewed source changes: remove Open Interpreter's
+generated `.zcode/oi-*` worktree caches before generating the patch. They are
+runtime observations, not source evidence, and the relock command rejects a
+patch that contains them. The focused tests are part of the source overlay so
+the mailbox, spawn transaction, and completion-delivery policies remain
+reviewable independently of the desktop adapter:
 
 ```bash
 cargo check -p codex-core --lib
@@ -110,9 +113,11 @@ vp run agent-runtime:relock -- \
 The relock command reads the current committed lock and the repository-owned
 patch, license, and notice files. It validates both package manifests, derives
 the runtime version from the release tag, generates the experimental schema
-fingerprint with the current Mac's native package entrypoint, and computes the
-archive and staged-metadata hashes for both architectures through the
-production staging algorithm. The output path is mandatory, must not already
+fingerprint from both package entrypoints and requires them to be identical,
+and computes the archive and staged-metadata hashes for both architectures
+through the production staging algorithm. Both binaries must therefore be
+executable on the relock Mac (Rosetta is required when relocking Intel and Apple
+Silicon packages on Apple Silicon). The output path is mandatory, must not already
 exist, and must not be the committed lock path. The command never publishes an
 artifact or edits `openinterpreter.lock.json`; review the candidate diff before
 deliberately installing it as the new lock. A published tag or asset is
@@ -129,9 +134,34 @@ lifecycle cleanup against a mock provider. Durable completion receipts are
 acknowledged only after the parent rollout flush succeeds and the exact stable
 receipt ID can be read back from that rollout; mailbox enqueue or in-memory
 history by itself is never considered delivery.
-Create and push the exact
-artifact tag at the reviewed Nodex commit, then publish through the guarded
-interface:
+
+The ordinary conformance command stages from the canonical release URL. Before
+the new immutable release exists, stage each reviewed local archive in turn and
+invoke the explicit staged-runtime gates instead:
+
+```bash
+vp run materialize:browser-runtime:mac:<arm64|x64>
+pnpm exec tsx scripts/stage-codex-runtime.ts \
+  --target-platform darwin \
+  --target-arch <arm64|x64> \
+  --out .generated/codex-runtime \
+  --archive <matching-agent-runtime-archive> \
+  --browser-runtime-source .generated/browser-runtime-source/<arm64|x64>
+
+# Run these before staging the next architecture.
+vp run codex:schemas:verify:staged
+vp run test:agent-runtime-conformance:staged
+
+# Restage the host architecture before running the Electron composition.
+vp run agent:smoke:scripted
+```
+
+Do not use `stage:codex-runtime:mac` for this pre-publication step: that command
+deliberately resolves the locked HTTPS asset and therefore becomes the
+post-publication verification path.
+
+Create and push the exact artifact tag at the reviewed Nodex commit, then
+publish through the guarded interface:
 
 ```bash
 vp run agent-runtime:publish -- \
@@ -142,7 +172,10 @@ vp run agent-runtime:publish -- \
   --x64 <x64-archive>
 ```
 
-The publisher always uses `--verify-tag --latest=false`. After publication,
-delete the local download cache, restage from the locked HTTPS URLs, and rerun
-`vp run verify:runtime:mac` so the shipped path is tested rather than only the
-build directory.
+The publisher reads the canonical lock and rejects any repository, tag, source
+commit, archive size, or archive SHA-256 mismatch. It also requires a clean
+worktree and resolves the pushed tag (including annotated tags) to the current
+reviewed Nodex commit before calling GitHub with `--verify-tag --latest=false`.
+After publication, delete the local download cache, restage from the locked
+HTTPS URLs, and rerun `vp run verify:runtime:mac` so the shipped path is tested
+rather than only the build directory.

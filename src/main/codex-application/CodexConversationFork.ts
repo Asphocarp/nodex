@@ -31,6 +31,7 @@ import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrai
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexThreadCatalog } from "./CodexThreadCatalog";
 import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
+import { requireExactThreadStartProfile } from "./codex-thread-start-profile";
 import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 import { ConversationEntityMap } from "./internal/ConversationEntityMap";
@@ -257,6 +258,31 @@ export const make: Effect.Effect<
         new Error("Bounded Thread fork returned inline or non-paginated history"),
       );
     }
+    yield* Effect.try({
+      try: () => requireExactThreadStartProfile(response, profile ?? null),
+      catch: (cause) => error("fork", sourceThreadId, cause),
+    }).pipe(
+      Effect.tapError(() =>
+        gateway
+          .requestOnHost(
+            source.durable.executionHostId,
+            "thread/delete",
+            { threadId: response.thread.id },
+            codexGatewayGenerationFence(capability),
+          )
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Could not delete a profile-substituted fork").pipe(
+                Effect.annotateLogs({
+                  sourceThreadId,
+                  childThreadId: response.thread.id,
+                  cause: String(cause),
+                }),
+              ),
+            ),
+          ),
+      ),
+    );
     const child = yield* directory
       .acceptForkResult({
         sourceThreadId,

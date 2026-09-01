@@ -5,6 +5,8 @@ import * as Exit from "effect/Exit";
 import * as Clock from "effect/Clock";
 import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
 import type { ThreadForkParams, ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2";
+import type { AgentExecutionProfile } from "../../shared/agent-runtime";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 import type {
   CodexCanonicalHydratedPermissionContext,
   CodexSideChatStartInput,
@@ -41,6 +43,7 @@ import { SIDE_CHAT_BOUNDARY_TEXT } from "./CodexSideChatPolicy";
 import { SIDE_CHAT_DEVELOPER_INSTRUCTIONS } from "./CodexSideChatPolicy";
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
+import { requireExactThreadStartProfile } from "./codex-thread-start-profile";
 import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 
 type GatewayThreadForkParams = ClientRequestParamsByMethod["thread/fork"];
@@ -52,6 +55,7 @@ interface CodexSideChatPlan {
   readonly parent: CodexThreadDirectoryEntry;
   readonly parentNavigationPath: string | null;
   readonly startedAt: number;
+  readonly executionProfile: AgentExecutionProfile | null;
   readonly initialTurn: {
     readonly prompt: string;
     readonly overrides: CodexTurnStartOverrides;
@@ -189,6 +193,17 @@ export const make: Effect.Effect<
       });
     }
     const executionProfile = currentSnapshot?.executionProfile ?? parent.durable.executionProfile;
+    const requestedExecutionProfile = executionProfile
+      ? {
+          ...executionProfile,
+          modelId: input.model ?? executionProfile.modelId,
+          reasoningEffort: input.reasoningEffort ?? executionProfile.reasoningEffort,
+          serviceTier:
+            input.serviceTier !== undefined
+              ? normalizeCodexServiceTier(input.serviceTier)
+              : executionProfile.serviceTier,
+        }
+      : null;
     const permissions =
       (parent.canonical ?? currentSnapshot?.canonicalState)?.sidecar.hydrationContext
         ?.currentPermissions ?? null;
@@ -208,6 +223,7 @@ export const make: Effect.Effect<
       parent,
       parentNavigationPath: input.parentNavigationPath?.trim() || null,
       startedAt: yield* Clock.currentTimeMillis,
+      executionProfile: requestedExecutionProfile,
       forkRequest: {
         threadId: parentThreadId,
         path: null,
@@ -232,7 +248,8 @@ export const make: Effect.Effect<
         ...(executionProfile
           ? {
               modelProvider: executionProfile.providerId,
-              serviceTier: input.serviceTier ?? executionProfile.serviceTier,
+              serviceTier:
+                input.serviceTier !== undefined ? input.serviceTier : executionProfile.serviceTier,
             }
           : {}),
       },
@@ -242,7 +259,8 @@ export const make: Effect.Effect<
             overrides: {
               promptInput,
               model: input.model,
-              serviceTier: input.serviceTier,
+              serviceTier:
+                input.serviceTier !== undefined ? input.serviceTier : executionProfile?.serviceTier,
               permissionMode: input.permissionMode,
               reasoningEffort: input.reasoningEffort,
               collaborationMode: input.collaborationMode,
@@ -291,6 +309,17 @@ export const make: Effect.Effect<
           response.runtimeWorkspaceRoots.length > 0
             ? [...response.runtimeWorkspaceRoots]
             : [...permissions.runtimeWorkspaceRoots],
+        latestThreadSettings: {
+          cwd,
+          approvalPolicy: response.approvalPolicy,
+          approvalsReviewer: response.approvalsReviewer,
+          activePermissionProfile: response.activePermissionProfile,
+          sandboxPolicy: response.sandbox,
+          model: response.model,
+          serviceTier: normalizeCodexServiceTier(response.serviceTier),
+          effort: response.reasoningEffort,
+          multiAgentMode: response.multiAgentMode,
+        },
         pendingRequests: [],
         hasUnreadTurn: false,
       },
@@ -438,6 +467,10 @@ export const make: Effect.Effect<
         cause: new Error("Thread fork did not return a valid thread id"),
       });
     }
+    yield* Effect.try({
+      try: () => requireExactThreadStartProfile(response, plan.executionProfile),
+      catch: (cause) => new CodexSideChatProjectionError({ operation: "commit", threadId, cause }),
+    }).pipe(Effect.tapError(() => cleanup(capability, threadId)));
     return yield* Effect.acquireUseRelease(
       routing.register(threadId, hostId).pipe(Effect.as({ hostId, threadId })),
       () =>

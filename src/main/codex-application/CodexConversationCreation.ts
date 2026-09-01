@@ -22,6 +22,7 @@ import {
   type CodexAppServerCapabilitySnapshot,
 } from "../codex-runtime/CodexAppServerCapabilities";
 import { CodexGateway, codexGatewayGenerationFence } from "../codex-runtime/CodexGateway";
+import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { CodexAttachments } from "./CodexAttachments";
 import { AgentProviderRuntime } from "./AgentProviderRuntime";
@@ -106,6 +107,7 @@ export const make: Effect.Effect<
   | CodexThreadTitlePersistence
   | CodexTurnCommands
   | BrowserUseRuntime
+  | DesktopToolRuntime
   | ManagedWorktreeRuntime
   | ProjectWorkspace
 > = Effect.gen(function* () {
@@ -116,6 +118,7 @@ export const make: Effect.Effect<
   const forkTransfers = yield* CodexForkSidePanelTransfer;
   const capabilities = yield* CodexAppServerCapabilities;
   const gateway = yield* CodexGateway;
+  const desktopTools = yield* DesktopToolRuntime;
   const directory = yield* CodexThreadDirectory;
   const goals = yield* CodexThreadGoalRuntime;
   const completion = yield* CodexThreadLaunchCompletion;
@@ -240,17 +243,21 @@ export const make: Effect.Effect<
           .resolveExecutionProfile(params.executionProfile)
           .pipe(Effect.mapError((cause) => fail("resolve-profile", entry, cause)))
       : null;
+    const desktopToolConfig = yield* desktopTools.threadConfig.pipe(
+      Effect.mapError((cause) => fail("desktop-tools", entry, cause)),
+    );
     const request: ThreadStartParams = {
       cwd: location.cwd,
       runtimeWorkspaceRoots: [...location.workspaceRoots],
       model: executionProfile?.modelId ?? params.collaborationMode?.settings.model ?? null,
       modelProvider: executionProfile?.providerId ?? null,
       ...(executionProfile ? { allowProviderModelFallback: false } : {}),
-      serviceTier: executionProfile?.serviceTier ?? params.serviceTier,
+      serviceTier: executionProfile ? executionProfile.serviceTier : params.serviceTier,
       baseInstructions: params.baseInstructions ?? null,
       developerInstructions: params.additionalDeveloperInstructions ?? null,
       threadSource: params.threadSource,
       config: {
+        ...(desktopToolConfig ?? {}),
         ...buildCodexThreadConfigOverrides(),
         ...(params.configOverrides ?? {}),
         ...(executionProfile?.harnessId ? { harness: executionProfile.harnessId } : {}),
@@ -309,7 +316,7 @@ export const make: Effect.Effect<
       const turn = yield* turns.start(threadId, prompt, {
         preparedPrompt: preparedPrompt(entry, prompt),
         model: executionProfile?.modelId ?? params.collaborationMode?.settings.model ?? undefined,
-        serviceTier: params.serviceTier,
+        serviceTier: executionProfile ? executionProfile.serviceTier : params.serviceTier,
         reasoningEffort: executionProfile?.reasoningEffort ?? params.reasoningEffort ?? undefined,
         collaborationMode: collaborationMode(params.collaborationMode),
         permissionMode: permissionMode(params.agentMode),

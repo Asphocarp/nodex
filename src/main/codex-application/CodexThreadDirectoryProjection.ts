@@ -5,6 +5,7 @@ import type {
   ProjectWorkspaceReadSnapshot,
 } from "../core-client/types";
 import { extractCodexThreadSubagentMetadata } from "../../shared/codex-subagent-metadata";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 import type {
   CodexCanonicalConversationState,
   CodexConversationSnapshot,
@@ -57,7 +58,7 @@ export const projectCoreWorkspaceThread = (
         modelId: thread.model_id,
         harnessId: thread.harness_id ?? null,
         reasoningEffort: thread.reasoning_effort ?? null,
-        serviceTier: thread.service_tier ?? null,
+        serviceTier: normalizeCodexServiceTier(thread.service_tier),
       }
     : null,
   executionHostId: thread.execution_host_id,

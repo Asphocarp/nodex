@@ -84,6 +84,7 @@ import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTit
 import { CodexTurnAuthority } from "../codex-application/CodexTurnAuthority";
 import { CodexTurnCommands } from "../codex-application/CodexTurnCommands";
 import { ComposerCatalog } from "../codex-application/ComposerCatalog";
+import { requireExactThreadStartProfile } from "../codex-application/codex-thread-start-profile";
 import { CodexConversations } from "../codex-application/CodexConversations";
 import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
 import { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
@@ -922,6 +923,7 @@ export const live = (
             cwd: location.cwd,
             model: input.model,
             modelProvider: executionProfile?.providerId ?? null,
+            ...(executionProfile ? { allowProviderModelFallback: false } : {}),
             config: {
               ...(browserConfig ?? {}),
               ...(executionProfile?.harnessId ? { harness: executionProfile.harnessId } : {}),
@@ -946,6 +948,28 @@ export const live = (
             params,
             codexGatewayGenerationFence(capability),
           )) as GatewayThreadStartResponse as unknown as ThreadStartResponse;
+          yield* Effect.try({
+            try: () => requireExactThreadStartProfile(response, executionProfile),
+            catch: (cause) => error("verify-cron-execution-profile", cause),
+          }).pipe(
+            Effect.tapError(() =>
+              gateway
+                .requestLocal(
+                  "thread/delete",
+                  { threadId: response.thread.id },
+                  codexGatewayGenerationFence(capability),
+                )
+                .pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning(
+                      "Could not delete a profile-substituted automation Thread",
+                    ).pipe(
+                      Effect.annotateLogs({ threadId: response.thread.id, cause: String(cause) }),
+                    ),
+                  ),
+                ),
+            ),
+          );
           const effectiveCwd =
             resolveCodexCanonicalHydratedCwd({
               requestedCwd: location.cwd,

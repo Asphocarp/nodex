@@ -84,12 +84,9 @@ export const prepareScenarioAgentRuntimeSync = (repositoryRoot: string): AgentRu
 export const prepareScenarioCodexAppServerRuntimeSync = (
   repositoryRoot: string,
   mockPeerPath: string,
+  version = "0.145.0-alpha.15",
 ): AgentRuntimeFixture =>
-  writeScenarioAgentRuntime(
-    repositoryRoot,
-    fs.readFileSync(mockPeerPath, "utf8"),
-    "0.145.0-alpha.15",
-  );
+  writeScenarioAgentRuntime(repositoryRoot, fs.readFileSync(mockPeerPath, "utf8"), version);
 
 export const prepareScenarioAgentRuntime = async (
   repositoryRoot: string,

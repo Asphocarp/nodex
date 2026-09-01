@@ -354,16 +354,18 @@ export const make: Effect.Effect<
           });
           continue;
         }
-        if (ownerRouted) continue;
         if (effect.type === "hydrateCollabThreads") {
           // Relationship projection owns bounded, keyed metadata repair. Publishing the durable
-          // invalidation keeps the notification lane free of app-server reads.
+          // invalidation keeps the notification lane free of app-server reads. This consequence
+          // is application-wide even when the renderer owner receives the protocol notification;
+          // otherwise owner attachment timing makes the child catalog nondeterministic.
           events.publish({
             kind: "conversationRelationshipsInvalidated",
             value: { parentThreadIds: [threadId] },
           });
           continue;
         }
+        if (ownerRouted) continue;
         if (effect.type === "continueGoalIfIdle") {
           yield* activeGoalContinuation.request(threadId);
           continue;

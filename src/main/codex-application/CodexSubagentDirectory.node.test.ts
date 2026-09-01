@@ -138,7 +138,7 @@ const rootDirectoryEntry = {
     managedWorktreePath: null,
     projectlessOutputDirectory: null,
     projectlessWorkspaceBrowserRoot: null,
-    statusType: "active",
+    statusType: "idle",
     statusActiveFlags: [],
     archived: false,
     pinnedOrder: null,
@@ -158,6 +158,7 @@ const buildDirectory = (input: {
   readonly read: CoreModuleClients["workspace"]["read"];
   readonly apply: CoreModuleClients["workspace"]["apply"];
   readonly requestOnHost: RequestOnHost;
+  readonly hasLiveRootTurn?: boolean;
   readonly resolve?: CodexThreadDirectory["Service"]["resolve"];
   readonly observedSubagentThreadIds?: readonly string[];
   readonly observedSubagentThreadIdsByParent?: Readonly<Record<string, readonly string[]>>;
@@ -185,7 +186,7 @@ const buildDirectory = (input: {
           const observedThreadIds =
             input.observedSubagentThreadIdsByParent?.[threadId] ??
             (threadId === "root-a" ? input.observedSubagentThreadIds : undefined);
-          if (!observedThreadIds?.length) return null;
+          if (!observedThreadIds?.length && !input.hasLiveRootTurn) return null;
           return {
             generation: 1,
             snapshot: null,
@@ -193,11 +194,15 @@ const buildDirectory = (input: {
               protocol: { id: "root-a" },
               turns: [
                 {
+                  protocol: {
+                    id: "turn-root",
+                    status: input.hasLiveRootTurn ? "inProgress" : "completed",
+                  },
                   items: [
                     {
                       type: "collabAgentToolCall",
                       tool: "spawnAgent",
-                      receiverThreadIds: observedThreadIds,
+                      receiverThreadIds: observedThreadIds ?? [],
                     },
                   ],
                 },
@@ -246,12 +251,12 @@ const buildDirectory = (input: {
   );
 };
 
-it.effect("builds an initial metadata-only overview in the root-scoped background lane", () =>
+it.effect("retains status-before-identity when Core buffering is temporarily unavailable", () =>
   Effect.scoped(
     Effect.gen(function* () {
       let complete = false;
       let observed = false;
-      let bufferedStatus: string | null = null;
+      let durableBufferAttempts = 0;
       let flushedStatus: string | null = null;
       const requests: Array<{
         readonly method: string;
@@ -309,37 +314,35 @@ it.effect("builds an initial metadata-only overview in the root-scoped backgroun
           commit_head: observed ? 2 : 1,
           value: { kind: "subagent_overview_window", overview: overview() },
         } as unknown as ProjectWorkspaceReadSnapshot);
-      const apply: CoreModuleClients["workspace"]["apply"] = (input) =>
-        Effect.sync(() => {
+      const apply: CoreModuleClients["workspace"]["apply"] = (input) => {
+        if (input.intent.kind === "buffer_subagent_status_evidence") {
+          durableBufferAttempts += 1;
+          return Effect.fail(new Error("Core status buffer is temporarily unavailable") as never);
+        }
+        return Effect.sync(() => {
           if (input.intent.kind === "observe_subagent_discovery_page") {
             observed = input.intent.observations.some(
               (observation) => observation.thread_id === "child-a",
             );
             complete = input.intent.complete;
-            if (observed && bufferedStatus) flushedStatus = bufferedStatus;
-          }
-          if (input.intent.kind === "buffer_subagent_status_evidence") {
-            bufferedStatus = input.intent.status;
           }
           if (input.intent.kind === "observe_subagent_status_evidence") {
             flushedStatus = input.intent.status;
           }
           return {} as never;
         });
+      };
       const requestOnHost = ((hostId: string, method: string, params: unknown, options: unknown) =>
         Effect.sync(() => {
           requests.push({ method, params, options });
           assert.strictEqual(hostId, "remote-a");
-          if (method === "thread/turns/list") {
-            return { data: [], nextCursor: null, backwardsCursor: null };
-          }
-          assert.strictEqual(method, "thread/list");
-          return { data: [child], nextCursor: null, backwardsCursor: null };
+          return { data: [], nextCursor: null, backwardsCursor: null };
         })) as RequestOnHost;
       const service = yield* buildDirectory({
         capability,
         read,
         apply,
+        hasLiveRootTurn: true,
         requestOnHost,
       });
 
@@ -356,23 +359,37 @@ it.effect("builds an initial metadata-only overview in the root-scoped backgroun
         occurrenceToken: 1,
         observedAtMs: 119_000,
       });
-      assert.strictEqual(bufferedStatus, "waiting", "status-before-row must be durable");
+      assert.strictEqual(durableBufferAttempts, 1);
       assert.strictEqual(flushedStatus, null, "status-before-row must stay pending");
 
       yield* service.observeNotification({
         hostId: "remote-a",
         generation: 7,
-        notification: { method: "thread/started", params: { thread: child } },
+        notification: {
+          method: "item/completed",
+          params: {
+            threadId: "root-a",
+            turnId: "turn-root",
+            completedAtMs: 120_000,
+            item: {
+              type: "subAgentActivity",
+              id: "spawn-child-a",
+              kind: "started",
+              agentThreadId: child.id,
+              agentPath: "root-a/Scout",
+            },
+          },
+        },
         occurrenceToken: 1,
         observedAtMs: 120_000,
       });
-      assert.isTrue(observed, "the positive child fact must not wait for child materialization");
+      assert.isTrue(observed, "the V2 started activity must materialize its child identity");
       assert.strictEqual(
         flushedStatus,
         "waiting",
         "the stronger pending status must merge after identity",
       );
-      assert.isFalse(complete, "a later spawn reopens an already-known discovery universe");
+      assert.isFalse(complete, "a compact activity item must not claim complete discovery");
 
       const result = yield* service.readOverview({ rootThreadId: "root-a", mode: "initial" });
 
@@ -383,32 +400,41 @@ it.effect("builds an initial metadata-only overview in the root-scoped backgroun
         ["child-a"],
       );
       assert.deepEqual(
-        requests
-          .filter((request) => request.method === "thread/list")
-          .map((request) => request.method),
-        ["thread/list"],
+        requests,
+        [],
+        "the active Thread owner must not be duplicated for discovery",
       );
-      const discoveryRequest = requests.find((request) => request.method === "thread/list");
-      assert.deepEqual(discoveryRequest?.params, {
-        cursor: null,
-        limit: 200,
-        sortKey: "created_at",
-        sortDirection: "desc",
-        sourceKinds: ["subAgentThreadSpawn"],
-        archived: false,
-        useStateDbOnly: true,
-        ancestorThreadId: "root-a",
+    }),
+  ),
+);
+
+it.effect("does not admit a known root Thread as pending Subagent status evidence", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let applyCount = 0;
+      const service = yield* buildDirectory({
+        capability,
+        read: () => Effect.die("unexpected Core read"),
+        apply: () =>
+          Effect.sync(() => {
+            applyCount += 1;
+            return {} as never;
+          }),
+        requestOnHost: (() => Effect.die("unexpected gateway request")) as RequestOnHost,
       });
-      assert.deepEqual(discoveryRequest?.options, {
-        priority: "background",
-        source: "collab_hydration",
-        conversationId: "root-a",
-        widgetId: "subagent-overview:discovery",
-        coalesce: true,
-        timeoutMs: 10_000,
-        expectedHostId: "remote-a",
-        expectedGeneration: 7,
+
+      yield* service.observeNotification({
+        hostId: "remote-a",
+        generation: 7,
+        notification: {
+          method: "thread/status/changed",
+          params: { threadId: "root-a", status: { type: "active", activeFlags: [] } },
+        },
+        occurrenceToken: 1,
+        observedAtMs: 120_000,
       });
+
+      assert.strictEqual(applyCount, 0);
     }),
   ),
 );
@@ -1032,6 +1058,101 @@ it.effect("invalidates the overview when interruption races a committed status r
       assert.strictEqual(exit._tag, "Failure");
       if (exit._tag === "Failure") assert.isTrue(Cause.hasInterruptsOnly(exit.cause));
       assert.deepEqual(invalidatedRoots, ["root-a"]);
+    }),
+  ),
+);
+
+it.effect("retains a compact nested spawn until its parent edge is materialized", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const parentShell = {
+        ...rootDirectoryEntry,
+        durable: {
+          ...rootDirectoryEntry.durable,
+          threadId: "parent-a",
+          sessionId: "session-parent-a",
+          parentThreadId: null,
+          threadSource: "subAgentThreadSpawn",
+        },
+      } as CodexThreadDirectoryEntry;
+      const entries = new Map<string, CodexThreadDirectoryEntry>([
+        ["root-a", rootDirectoryEntry],
+        ["parent-a", parentShell],
+      ]);
+      const observedEdges: Array<{ readonly parentId: string | null; readonly threadId: string }> =
+        [];
+      const service = yield* buildDirectory({
+        capability,
+        read: () => Effect.die("unexpected Core read"),
+        apply: (input) =>
+          Effect.sync(() => {
+            if (input.intent.kind === "observe_subagent_discovery_page") {
+              observedEdges.push(
+                ...input.intent.observations.map((observation) => ({
+                  parentId: observation.parent_thread_id,
+                  threadId: observation.thread_id,
+                })),
+              );
+            }
+            return {} as never;
+          }),
+        requestOnHost: (() => Effect.die("unexpected gateway request")) as RequestOnHost,
+        resolve: ({ threadId }) => Effect.succeed(entries.get(threadId) ?? null),
+      });
+
+      yield* service.observeNotification({
+        hostId: "remote-a",
+        generation: 7,
+        notification: {
+          method: "item/completed",
+          params: {
+            threadId: "parent-a",
+            turnId: "turn-parent",
+            completedAtMs: 120_000,
+            item: {
+              type: "subAgentActivity",
+              id: "spawn-child-a",
+              kind: "started",
+              agentThreadId: "child-a",
+              agentPath: "root-a/parent-a/child-a",
+            },
+          },
+        },
+        occurrenceToken: 1,
+        observedAtMs: 120_000,
+      });
+      assert.deepEqual(observedEdges, []);
+
+      entries.set("parent-a", {
+        ...parentShell,
+        durable: { ...parentShell.durable, parentThreadId: "root-a" },
+      });
+      yield* service.observeNotification({
+        hostId: "remote-a",
+        generation: 7,
+        notification: {
+          method: "item/completed",
+          params: {
+            threadId: "root-a",
+            turnId: "turn-root",
+            completedAtMs: 121_000,
+            item: {
+              type: "subAgentActivity",
+              id: "spawn-parent-a",
+              kind: "started",
+              agentThreadId: "parent-a",
+              agentPath: "root-a/parent-a",
+            },
+          },
+        },
+        occurrenceToken: 2,
+        observedAtMs: 121_000,
+      });
+
+      assert.deepEqual(observedEdges, [
+        { parentId: "root-a", threadId: "parent-a" },
+        { parentId: "parent-a", threadId: "child-a" },
+      ]);
     }),
   ),
 );

@@ -26,6 +26,7 @@ import type {
 import type { ThreadTokenUsage } from "@nodex/codex-app-server-protocol/v2/ThreadTokenUsage";
 import { isCodexProtocolThreadItem } from "../codex-protocol-thread-item";
 import type { CodexQueuedFollowUp } from "../codex-queued-follow-up-state";
+import { normalizeCodexServiceTier } from "../codex-service-tier";
 import type { CodexItemStatus } from "../types";
 import type { CodexHistoryTurnItemsPagination } from "./codex-history-topology";
 import { boundCodexReasoningParts } from "./codex-reasoning-parts";
@@ -670,6 +671,7 @@ export interface CreateCodexCanonicalHydratedConversationStateOptions {
   readonly sandboxPolicy: NonNullable<TurnStartParams["sandboxPolicy"]>;
   readonly activePermissionProfile: ActivePermissionProfile | null;
   readonly runtimeWorkspaceRoots: NonNullable<TurnStartParams["runtimeWorkspaceRoots"]>;
+  readonly latestThreadSettings?: CodexCanonicalHydratedThreadSettings | null;
   readonly pendingRequests?: readonly CodexCanonicalServerRequest[];
   readonly hasUnreadTurn?: boolean;
   /** Required for every partial Turn so params can retain its opening user input. */
@@ -1598,6 +1600,7 @@ export function createCodexCanonicalHydratedConversationState(
       cwd: options.cwd || null,
       attachments: extractCodexCanonicalHydratedAttachments(input),
       effort: options.reasoningEffort,
+      serviceTier: normalizeCodexServiceTier(options.latestThreadSettings?.serviceTier),
       summary: "none" as const,
       personality: null,
       outputSchema: null,
@@ -1630,7 +1633,12 @@ export function createCodexCanonicalHydratedConversationState(
         latestModel: options.model,
         latestReasoningEffort: options.reasoningEffort,
         cwd: options.cwd,
-        latestThreadSettings: null,
+        latestThreadSettings: options.latestThreadSettings
+          ? {
+              ...options.latestThreadSettings,
+              serviceTier: normalizeCodexServiceTier(options.latestThreadSettings.serviceTier),
+            }
+          : null,
         currentPermissions,
       },
     },

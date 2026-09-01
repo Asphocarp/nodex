@@ -243,6 +243,16 @@ export const make: Effect.Effect<
     const notification = input.notification;
     const id = threadId(notification);
     const before = yield* read(id);
+    // App-server can emit child lifecycle/status before thread/started crosses the identity lane.
+    // Metadata deltas cannot materialize a Thread safely and the later identity snapshot already
+    // carries their current value. Deletion remains observable and idempotent even without a row.
+    if (
+      !before &&
+      notification.method !== "thread/started" &&
+      notification.method !== "thread/deleted"
+    ) {
+      return;
+    }
     if (notification.method === "thread/started") {
       yield* observeStarted({ ...input, notification });
     } else if (notification.method === "thread/deleted") {

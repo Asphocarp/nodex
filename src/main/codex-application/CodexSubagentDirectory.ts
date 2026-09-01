@@ -108,6 +108,11 @@ interface RootContext {
   readonly universe: SubagentUniverse;
 }
 
+type SubagentIdentityResolution =
+  | { readonly kind: "subagent"; readonly context: RootContext }
+  | { readonly kind: "root" }
+  | { readonly kind: "unresolved" };
+
 interface LegacyDiscoveryState {
   readonly phase: "list" | "topology";
   readonly scanId: string;
@@ -150,12 +155,24 @@ type AncestorDiscoveryState =
       readonly spentMs: number;
     };
 
-interface PendingSpawnObservation {
-  readonly hostId: string;
-  readonly generation: number;
-  readonly occurrenceToken: number;
-  readonly thread: Thread;
-}
+type PendingSpawnObservation =
+  | {
+      readonly kind: "thread";
+      readonly hostId: string;
+      readonly generation: number;
+      readonly occurrenceToken: number;
+      readonly thread: Thread;
+    }
+  | {
+      readonly kind: "activity";
+      readonly hostId: string;
+      readonly generation: number;
+      readonly occurrenceToken: number;
+      readonly parentThreadId: string;
+      readonly childThreadId: string;
+      readonly agentPath: string;
+      readonly observedAtMs: number;
+    };
 
 interface PendingSpawnEntry {
   readonly observation: PendingSpawnObservation;
@@ -305,6 +322,64 @@ const topologyParents = (rootThreadId: string, threadIds: Iterable<string>): rea
 const deterministicObservationTime = (thread: Thread): number => {
   const seconds = Math.max(thread.updatedAt ?? 0, thread.createdAt ?? 0, 0);
   return Number.isSafeInteger(seconds) ? seconds * 1_000 : 0;
+};
+
+/**
+ * Multi-Agent V2 intentionally emits a compact activity item before a full child Thread row.
+ * Materialize that positive identity fact directly so the live owner never needs a competing
+ * app-server connection merely to discover the child it just spawned.
+ */
+const projectStartedSubagentThreadShell = (input: {
+  readonly parent: CodexThreadDirectoryEntry;
+  readonly threadId: string;
+  readonly agentPath: string;
+  readonly observedAtMs: number;
+}): Thread => {
+  const observedAtSeconds = Math.max(0, Math.trunc(input.observedAtMs / 1_000));
+  const pathSegments = input.agentPath
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const agentName = pathSegments.at(-1) ?? null;
+  return {
+    id: input.threadId,
+    extra: null,
+    sessionId: input.parent.durable.threadId,
+    forkedFromId: null,
+    parentThreadId: input.parent.durable.threadId,
+    preview: "",
+    ephemeral: false,
+    section: null,
+    sectionEnteredAt: null,
+    projectId: input.parent.durable.projectId,
+    historyMode: "paginated",
+    modelProvider: input.parent.durable.modelProvider,
+    createdAt: observedAtSeconds,
+    updatedAt: observedAtSeconds,
+    recencyAt: observedAtSeconds,
+    status: { type: "active", activeFlags: [] },
+    path: null,
+    cwd: input.parent.durable.cwd ?? "",
+    cliVersion: "",
+    source: {
+      subAgent: {
+        thread_spawn: {
+          parent_thread_id: input.parent.durable.threadId,
+          depth: Math.max(1, pathSegments.length - 1),
+          agent_path: input.agentPath || null,
+          agent_nickname: null,
+          agent_role: null,
+        },
+      },
+    },
+    canAcceptDirectInput: null,
+    threadSource: "subAgentThreadSpawn",
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    name: agentName,
+    turns: [],
+  };
 };
 
 const isCoreNotFound = (cause: unknown): boolean => {
@@ -619,6 +694,16 @@ export const make: Effect.Effect<
   ) => Effect.Effect<void, CodexSubagentDirectoryError> = () => Effect.void;
   let schedulePendingStatusRepair: (context: RootContext) => void = () => undefined;
 
+  const hasLiveRootOwner = (context: RootContext): boolean => {
+    const conversation = conversations.read(context.universe.root_thread_id);
+    if (!conversation) return false;
+    if (context.root.durable.statusType === "active") return true;
+    return (
+      conversation.canonicalState?.turns.some((turn) => turn.protocol?.status === "inProgress") ===
+      true
+    );
+  };
+
   const observedSubagentThreadIds = (
     rootThreadId: string,
     knownParentThreadIds: Iterable<string> = [],
@@ -706,7 +791,10 @@ export const make: Effect.Effect<
     `${hostId}\0${generation}\0${threadId}`;
 
   const rememberPendingSpawnObservation = (observation: PendingSpawnObservation): void => {
-    const threadId = observation.thread.id.trim();
+    const threadId =
+      observation.kind === "thread"
+        ? observation.thread.id.trim()
+        : observation.childThreadId.trim();
     if (!threadId) return;
     const bytes = cappedApproximateValueBytes(observation, PENDING_SPAWN_OBSERVATION_ENTRY_BYTES);
     if (bytes > PENDING_SPAWN_OBSERVATION_ENTRY_BYTES) return;
@@ -945,6 +1033,27 @@ export const make: Effect.Effect<
           error("status", pending.rootThreadId ?? pending.threadId, cause, pending.threadId),
         ),
       );
+  });
+
+  /** A later identity observation flushes this bounded fallback through applyStatusEvidence. */
+  const bufferStatusEvidenceBeforeIdentity = Effect.fn(
+    "CodexSubagentDirectory.bufferStatusEvidenceBeforeIdentity",
+  )(function* (pending: PendingStatusEvidence): Effect.fn.Return<void> {
+    yield* bufferStatusEvidence(pending).pipe(
+      Effect.catch((cause) => {
+        rememberPendingStatusEvidence(pending);
+        return Effect.logWarning(
+          "Could not durably buffer early Subagent status evidence; retaining it in memory",
+        ).pipe(
+          Effect.annotateLogs({
+            hostId: pending.hostId,
+            generation: pending.generation,
+            threadId: pending.threadId,
+            cause,
+          }),
+        );
+      }),
+    );
   });
 
   const flushPendingStatusEvidence = Effect.fn("CodexSubagentDirectory.flushPendingStatusEvidence")(
@@ -2083,13 +2192,17 @@ export const make: Effect.Effect<
     input: CodexSubagentOverviewReadInput,
   ): Effect.fn.Return<CodexSubagentOverviewWindow, CodexSubagentDirectoryError> {
     const context = yield* resolveRootContext(input.rootThreadId);
+    // The renderer-owned app-server is the sole writer while a Turn is active. A metadata read
+    // must not lazily start the host catalog endpoint, which would resume the same root and create
+    // a second owner. Live activity notifications keep this projection current until settlement.
+    const canDiscoverRemotely = !hasLiveRootOwner(context);
     let overview = yield* readOverviewPage(context, {
       activeAfter: null,
       activeFirst: CODEX_SUBAGENT_OVERVIEW_INITIAL_ACTIVE_LIMIT,
       doneAfter: null,
       doneFirst: CODEX_SUBAGENT_OVERVIEW_INITIAL_DONE_LIMIT,
     });
-    if (!overview.discovery_complete) {
+    if (!overview.discovery_complete && canDiscoverRemotely) {
       const key = discoveryKey(context);
       const foreground = FiberMap.getUnsafe(foregroundDiscoveries, key);
       if (foreground._tag === "Some") {
@@ -2130,7 +2243,7 @@ export const make: Effect.Effect<
         doneAfter: null,
         doneFirst: CODEX_SUBAGENT_OVERVIEW_INITIAL_DONE_LIMIT,
       });
-      if (!overview.discovery_complete) {
+      if (!overview.discovery_complete && !hasLiveRootOwner(context)) {
         scheduleDiscoveryRepair(context);
       }
       return projectCodexSubagentOverviewWindow(overview as unknown as CoreSubagentOverviewLike);
@@ -2875,10 +2988,10 @@ export const make: Effect.Effect<
       );
     });
 
-  const resolveSubagentContext = Effect.fn("CodexSubagentDirectory.resolveSubagentContext")(
+  const resolveSubagentIdentity = Effect.fn("CodexSubagentDirectory.resolveSubagentIdentity")(
     function* (
       threadId: string,
-    ): Effect.fn.Return<RootContext | null, CodexSubagentDirectoryError> {
+    ): Effect.fn.Return<SubagentIdentityResolution, CodexSubagentDirectoryError> {
       const visited = new Set<string>();
       let currentThreadId = threadId.trim();
       let observedParent = false;
@@ -2891,15 +3004,29 @@ export const make: Effect.Effect<
         const entry = yield* threadDirectory
           .resolve({ threadId: currentThreadId, fidelity: "durable" })
           .pipe(Effect.mapError((cause) => error("status", threadId, cause, threadId)));
-        if (!entry) return null;
+        if (!entry) return { kind: "unresolved" };
         const parentThreadId = entry.durable.parentThreadId?.trim() ?? "";
         if (!parentThreadId) {
-          return observedParent ? yield* resolveRootContext(currentThreadId) : null;
+          if (observedParent) {
+            return { kind: "subagent", context: yield* resolveRootContext(currentThreadId) };
+          }
+          return entry.durable.threadSource === "subAgentThreadSpawn"
+            ? { kind: "unresolved" }
+            : { kind: "root" };
         }
         observedParent = true;
         currentThreadId = parentThreadId;
       }
-      return null;
+      return { kind: "unresolved" };
+    },
+  );
+
+  const resolveSubagentContext = Effect.fn("CodexSubagentDirectory.resolveSubagentContext")(
+    function* (
+      threadId: string,
+    ): Effect.fn.Return<RootContext | null, CodexSubagentDirectoryError> {
+      const identity = yield* resolveSubagentIdentity(threadId);
+      return identity.kind === "subagent" ? identity.context : null;
     },
   );
 
@@ -2931,7 +3058,10 @@ export const make: Effect.Effect<
         for (const [key, entry] of pendingSpawnObservations) {
           const observation = entry.observation;
           const parentThreadId =
-            extractCodexThreadSubagentMetadata(observation.thread).parentThreadId?.trim() ?? "";
+            observation.kind === "thread"
+              ? (extractCodexThreadSubagentMetadata(observation.thread).parentThreadId?.trim() ??
+                "")
+              : observation.parentThreadId.trim();
           if (!frontier.has(parentThreadId)) continue;
           const context = yield* resolveSpawnParentContext(parentThreadId);
           if (!context) continue;
@@ -2943,13 +3073,36 @@ export const make: Effect.Effect<
             pendingSpawnObservationBytes -= entry.bytes;
             continue;
           }
+          const thread =
+            observation.kind === "thread"
+              ? observation.thread
+              : yield* threadDirectory
+                  .resolve({ threadId: parentThreadId, fidelity: "durable" })
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      error("status", context.universe.root_thread_id, cause, parentThreadId),
+                    ),
+                    Effect.flatMap((parent) =>
+                      parent
+                        ? Effect.succeed(
+                            projectStartedSubagentThreadShell({
+                              parent,
+                              threadId: observation.childThreadId,
+                              agentPath: observation.agentPath,
+                              observedAtMs: observation.observedAtMs,
+                            }),
+                          )
+                        : Effect.succeed(null),
+                    ),
+                  );
+          if (!thread) continue;
           pendingSpawnObservations.delete(key);
           pendingSpawnObservationBytes -= entry.bytes;
-          const threadId = observation.thread.id.trim();
+          const threadId = thread.id.trim();
           yield* applyDiscoveryPage(
             context,
             `notification:${observation.hostId}:${observation.generation}:${observation.occurrenceToken}:${threadId}`,
-            [observation.thread],
+            [thread],
             null,
             false,
             false,
@@ -2981,6 +3134,7 @@ export const make: Effect.Effect<
       const context = yield* resolveSpawnParentContext(parentThreadId);
       if (!context) {
         rememberPendingSpawnObservation({
+          kind: "thread",
           hostId: input.hostId,
           generation: input.generation,
           occurrenceToken: input.occurrenceToken,
@@ -3008,12 +3162,67 @@ export const make: Effect.Effect<
       notification.method === "item/completed" &&
       notification.params.item.type === "subAgentActivity"
     ) {
-      if (notification.params.item.kind !== "completed") return;
+      if (notification.params.item.kind === "started") {
+        const parentThreadId = notification.params.threadId.trim();
+        if (!parentThreadId) return;
+        const context = yield* resolveSpawnParentContext(parentThreadId);
+        if (!context) {
+          rememberPendingSpawnObservation({
+            kind: "activity",
+            hostId: input.hostId,
+            generation: input.generation,
+            occurrenceToken: input.occurrenceToken,
+            parentThreadId,
+            childThreadId: notification.params.item.agentThreadId,
+            agentPath: notification.params.item.agentPath,
+            observedAtMs: input.observedAtMs,
+          });
+          return;
+        }
+        if (
+          context.universe.host_id !== input.hostId ||
+          context.universe.generation !== input.generation
+        ) {
+          return;
+        }
+        const childThreadId = notification.params.item.agentThreadId.trim();
+        if (!childThreadId) return;
+        const parent = yield* threadDirectory
+          .resolve({ threadId: parentThreadId, fidelity: "durable" })
+          .pipe(
+            Effect.mapError((cause) =>
+              error("status", context.universe.root_thread_id, cause, parentThreadId),
+            ),
+          );
+        if (!parent) return;
+        yield* applyDiscoveryPage(
+          context,
+          `activity:${input.hostId}:${input.generation}:${input.occurrenceToken}:${childThreadId}`,
+          [
+            projectStartedSubagentThreadShell({
+              parent,
+              threadId: childThreadId,
+              agentPath: notification.params.item.agentPath,
+              observedAtMs: input.observedAtMs,
+            }),
+          ],
+          null,
+          false,
+        );
+        return;
+      }
+      if (
+        notification.params.item.kind !== "completed" &&
+        notification.params.item.kind !== "interrupted"
+      ) {
+        return;
+      }
       const childThreadId = notification.params.item.agentThreadId.trim();
       if (!childThreadId) return;
-      const context = yield* resolveSubagentContext(childThreadId);
-      if (!context) {
-        yield* bufferStatusEvidence({
+      const identity = yield* resolveSubagentIdentity(childThreadId);
+      if (identity.kind === "root") return;
+      if (identity.kind === "unresolved") {
+        yield* bufferStatusEvidenceBeforeIdentity({
           hostId: input.hostId,
           generation: input.generation,
           rootThreadId: null,
@@ -3026,6 +3235,7 @@ export const make: Effect.Effect<
         });
         return;
       }
+      const context = identity.context;
       if (
         context.universe.host_id !== input.hostId ||
         context.universe.generation !== input.generation
@@ -3102,9 +3312,10 @@ export const make: Effect.Effect<
     }
     if (!evidence) return;
 
-    const context = yield* resolveSubagentContext(notificationThreadId);
-    if (!context) {
-      yield* bufferStatusEvidence({
+    const identity = yield* resolveSubagentIdentity(notificationThreadId);
+    if (identity.kind === "root") return;
+    if (identity.kind === "unresolved") {
+      yield* bufferStatusEvidenceBeforeIdentity({
         hostId: input.hostId,
         generation: input.generation,
         rootThreadId: null,
@@ -3117,6 +3328,7 @@ export const make: Effect.Effect<
       });
       return;
     }
+    const context = identity.context;
     if (
       context.universe.host_id !== input.hostId ||
       context.universe.generation !== input.generation

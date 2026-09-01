@@ -2380,7 +2380,7 @@ export interface IpcApi {
     result: ProtocolExperimentalFeature[];
   };
   "codex:mcp-server-statuses:list": {
-    args: [];
+    args: [threadId?: string];
     result: ProtocolListMcpServerStatusResponse;
   };
   "codex:approval:respond": {

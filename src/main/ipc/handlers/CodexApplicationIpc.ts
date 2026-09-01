@@ -489,8 +489,10 @@ export const live: Layer.Layer<
     yield* ipc.handleQuery("codex:mcp-apps:list", (event) =>
       trusted(event, "MCP app access").pipe(Effect.andThen(tools.listApps)),
     );
-    yield* ipc.handleQuery("codex:mcp-server-statuses:list", (event) =>
-      trusted(event, "MCP server status access").pipe(Effect.andThen(tools.listServerStatuses)),
+    yield* ipc.handleQuery("codex:mcp-server-statuses:list", (event, threadId?: string) =>
+      trusted(event, "MCP server status access").pipe(
+        Effect.andThen(tools.listServerStatuses(threadId?.trim() || undefined)),
+      ),
     );
   }),
 );

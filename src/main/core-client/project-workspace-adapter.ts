@@ -14,6 +14,7 @@ import type {
   ProjectSessionThreadLink,
 } from "../../shared/types";
 import type { AgentExecutionProfile } from "../../shared/agent-runtime";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 import type { DynamicToolCatalogSelection } from "../codex/dynamic-tool-registry";
 import type {
   SidebarSectionItem,
@@ -355,7 +356,7 @@ export const projectWorkspaceSessionThreadFromCore = (
         modelId: thread.model_id,
         harnessId: thread.harness_id ?? null,
         reasoningEffort: thread.reasoning_effort ?? null,
-        serviceTier: thread.service_tier ?? null,
+        serviceTier: normalizeCodexServiceTier(thread.service_tier),
       }
     : null,
   executionHostId: thread.execution_host_id,
@@ -396,7 +397,7 @@ const fromCoreTaskThread = (
         modelId: thread.model_id,
         harnessId: thread.harness_id ?? null,
         reasoningEffort: thread.reasoning_effort ?? null,
-        serviceTier: thread.service_tier ?? null,
+        serviceTier: normalizeCodexServiceTier(thread.service_tier),
       }
     : null,
   executionHostId: thread.execution_host_id,
@@ -453,7 +454,7 @@ export const projectWorkspaceThreadFromCore = (
         modelId: thread.model_id,
         harnessId: thread.harness_id ?? null,
         reasoningEffort: thread.reasoning_effort ?? null,
-        serviceTier: thread.service_tier ?? null,
+        serviceTier: normalizeCodexServiceTier(thread.service_tier),
       }
     : null,
   executionHostId: thread.execution_host_id,
@@ -481,7 +482,7 @@ export const projectWorkspaceExecutionProfilePatchToCore = (
         model_id: profile.modelId,
         harness_id: profile.harnessId,
         reasoning_effort: profile.reasoningEffort,
-        service_tier: profile.serviceTier,
+        service_tier: normalizeCodexServiceTier(profile.serviceTier),
       }
     : {
         model_id: null,

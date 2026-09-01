@@ -18,6 +18,7 @@ it.effect("gates app discovery and coalesces concurrent status reads", () =>
   Effect.gen(function* () {
     const statusResponse = yield* Deferred.make<unknown>();
     let statusRequests = 0;
+    const statusParams: unknown[] = [];
     const requestLocal = ((method: string, params: unknown) => {
       if (method === "app/list") {
         const cursor = (params as { cursor?: string | null }).cursor;
@@ -49,6 +50,7 @@ it.effect("gates app discovery and coalesces concurrent status reads", () =>
       }
       if (method === "mcpServerStatus/list") {
         statusRequests += 1;
+        statusParams.push(params);
         return Deferred.await(statusResponse);
       }
       if (method === "mcpServer/resource/read") {
@@ -114,14 +116,23 @@ it.effect("gates app discovery and coalesces concurrent status reads", () =>
       }),
       { content: [] },
     );
-    const first = yield* runtime.listServerStatuses.pipe(Effect.forkScoped);
+    const first = yield* runtime.listServerStatuses().pipe(Effect.forkScoped);
     yield* Effect.yieldNow;
-    const second = yield* runtime.listServerStatuses.pipe(Effect.forkScoped);
+    const second = yield* runtime.listServerStatuses().pipe(Effect.forkScoped);
     yield* Effect.yieldNow;
     assert.strictEqual(statusRequests, 1);
     yield* Deferred.succeed(statusResponse, { data: [], nextCursor: null });
     assert.deepEqual(yield* Fiber.join(first), { data: [], nextCursor: null });
     assert.deepEqual(yield* Fiber.join(second), { data: [], nextCursor: null });
+    assert.deepEqual(yield* runtime.listServerStatuses("thread-1"), {
+      data: [],
+      nextCursor: null,
+    });
+    assert.strictEqual(statusRequests, 2);
+    assert.deepEqual(statusParams, [
+      { cursor: null, detail: "full", limit: 100 },
+      { cursor: null, detail: "full", limit: 100, threadId: "thread-1" },
+    ]);
 
     yield* Scope.close(scope, Exit.void);
   }),

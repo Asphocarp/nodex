@@ -17,6 +17,8 @@ import {
 } from "../codex-runtime/CodexAppServerCapabilities";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
+import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { CodexAttachments } from "./CodexAttachments";
 import { AgentProviderRuntime } from "./AgentProviderRuntime";
@@ -63,6 +65,8 @@ const harness = (
   options: {
     readonly start?: Effect.Effect<unknown>;
     readonly commitFails?: boolean;
+    readonly desktopToolConfig?: Record<string, unknown> | null;
+    readonly promoteFails?: boolean;
     readonly responseOverrides?: Readonly<Record<string, unknown>>;
   } = {},
 ) => {
@@ -72,6 +76,7 @@ const harness = (
   const preparationInputs: Parameters<CodexTurnPreparation["Service"]["start"]>[0][] = [];
   const pendingWorktreeRequests: CodexPendingWorktreeRequest[] = [];
   const requestScheduling: unknown[] = [];
+  const browserPromotions: unknown[] = [];
   let attempt = 0;
   const capability = createCodexAppServerCapabilitySnapshot({
     hostId: "local",
@@ -171,6 +176,7 @@ const harness = (
     preparationInputs,
     pendingWorktreeRequests,
     requestScheduling,
+    browserPromotions,
     threadStartParams,
     effect: make.pipe(
       Effect.provideService(
@@ -197,6 +203,27 @@ const harness = (
       ),
       Effect.provideService(CodexGateway, gateway),
       Effect.provideService(CoreModules, core),
+      Effect.provideService(
+        BrowserUseRuntime,
+        BrowserUseRuntime.of({
+          promoteRoute: (promotion: Parameters<BrowserUseRuntime["Service"]["promoteRoute"]>[0]) =>
+            options.promoteFails
+              ? Effect.fail({
+                  operation: "promote-route",
+                  cause: new Error("route expired"),
+                } as never)
+              : Effect.sync(() => {
+                  browserPromotions.push(promotion);
+                  events.push(`promote:${promotion.codexSessionId}`);
+                }),
+        } as unknown as BrowserUseRuntime["Service"]),
+      ),
+      Effect.provideService(
+        DesktopToolRuntime,
+        DesktopToolRuntime.of({
+          threadConfig: Effect.succeed(options.desktopToolConfig ?? null),
+        } as unknown as DesktopToolRuntime["Service"]),
+      ),
       Effect.provideService(CodexThreadDirectory, directory),
       Effect.provideService(CodexTurnCommands, turns),
       Effect.provideService(CodexThreadLaunchCompletion, completion),
@@ -246,6 +273,71 @@ it.effect("commits the Session link before admitting its first Turn", () =>
   }),
 );
 
+it.effect("promotes the Session Browser route before the first Turn starts", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const test = harness(scope);
+    const service = yield* test.effect;
+
+    const result = yield* service.start(
+      {
+        ...input(),
+        browserUsePresentationOrigin: {
+          browserConversationId: "session-a",
+          browserViewScopeId: "window-a",
+        },
+      },
+      context,
+    );
+
+    assert.strictEqual(result.kind, "started");
+    assert.deepEqual(test.browserPromotions, [
+      {
+        browserConversationId: "session-a",
+        browserViewScopeId: "window-a",
+        codexSessionId: "thread-1",
+        projectId: "project-a",
+      },
+    ]);
+    assert.deepEqual(test.events, [
+      "start:1",
+      "commit:thread-1",
+      "promote:thread-1",
+      "turn:thread-1",
+      "complete:thread-1",
+    ]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("starts the first Turn when the optional Browser route can no longer be promoted", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const test = harness(scope, { promoteFails: true });
+    const service = yield* test.effect;
+
+    const result = yield* service.start(
+      {
+        ...input(),
+        browserUsePresentationOrigin: {
+          browserConversationId: "session-a",
+          browserViewScopeId: "window-a",
+        },
+      },
+      context,
+    );
+
+    assert.strictEqual(result.kind, "started");
+    assert.deepEqual(test.events, [
+      "start:1",
+      "commit:thread-1",
+      "turn:thread-1",
+      "complete:thread-1",
+    ]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 const lunaMaxProfile: AgentExecutionProfile = {
   providerId: "openai",
   modelId: "gpt-5.6-luna",
@@ -265,7 +357,12 @@ const conflictingLaunchInput = (): CodexThreadStartForSessionInput => ({
 it.effect("uses one execution profile for renderer-owned Thread and first-Turn planning", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const test = harness(scope);
+    const test = harness(scope, {
+      desktopToolConfig: {
+        "features.js_repl": false,
+        "mcp_servers.node_repl": { command: "/runtime/node" },
+      },
+    });
     const service = yield* test.effect;
 
     const result = yield* service.start(conflictingLaunchInput(), {
@@ -285,6 +382,11 @@ it.effect("uses one execution profile for renderer-owned Thread and first-Turn p
       developerInstructions: null,
       threadSource: "user",
       config: {
+        "features.js_repl": false,
+        "mcp_servers.node_repl": { command: "/runtime/node" },
+        "features.apply_patch_streaming_events": true,
+        "features.concurrent_reasoning_summaries": true,
+        "features.thread_tools": true,
         harness: "codex",
         model_reasoning_effort: "max",
       },
@@ -336,6 +438,25 @@ it.effect("deletes a provider-substituted Thread before admitting its first Turn
   }),
 );
 
+it.effect("accepts the app-server Standard sentinel without weakening profile checks", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const test = harness(scope, { responseOverrides: { serviceTier: "default" } });
+    const service = yield* test.effect;
+
+    const result = yield* service.start(conflictingLaunchInput(), context);
+
+    assert.strictEqual(result.kind, "started");
+    assert.deepEqual(test.events, [
+      "start:1",
+      "commit:thread-1",
+      "turn:thread-1",
+      "complete:thread-1",
+    ]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("preserves the semantic source of protocol-created child Threads", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
@@ -355,7 +476,14 @@ it.effect("freezes Project authority into managed-worktree launches", () =>
     const test = harness(scope);
     const service = yield* test.effect;
 
-    const result = yield* service.start({ ...input(), runInTarget: "newWorktree" }, context);
+    const result = yield* service.start(
+      {
+        ...input(),
+        runInTarget: "newWorktree",
+        permissionMode: "guardian-approvals",
+      },
+      context,
+    );
 
     assert.strictEqual(result.kind, "pending");
     const request = test.pendingWorktreeRequests[0];
@@ -366,6 +494,7 @@ it.effect("freezes Project authority into managed-worktree launches", () =>
       projectId: "project-a",
       pendingCoreUpdate: false,
     });
+    assert.strictEqual(request.startConversationParamsInput.agentMode, "guardian-approvals");
     yield* Scope.close(scope, Exit.void);
   }),
 );

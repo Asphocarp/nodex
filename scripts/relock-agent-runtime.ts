@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   openSync,
+  readFileSync,
   readSync,
   rmSync,
   statSync,
@@ -34,6 +35,7 @@ const ARCHIVE_NAMES = {
   arm64: "open-interpreter-package-aarch64-apple-darwin.tar.gz",
   x64: "open-interpreter-package-x86_64-apple-darwin.tar.gz",
 } as const;
+const GENERATED_SOURCE_CACHE_FRAGMENT = "/.zcode/oi-";
 
 export type AgentRuntimeRelockOptions = {
   arm64ArchivePath: string;
@@ -100,6 +102,16 @@ function inspectArchive(archivePath: string): { archiveSha256: string; archiveSi
   return { archiveSha256: readSha256(archivePath), archiveSize };
 }
 
+function assertSourcePatchHygiene(sourcePath: string): void {
+  const patch = readFileSync(sourcePath, "utf8");
+  for (const match of patch.matchAll(/^diff --git a\/(?<path>[^\r\n]+) b\/[^\r\n]+$/gmu)) {
+    const changedPath = match.groups?.path;
+    if (!changedPath) continue;
+    if (!`/${changedPath}`.includes(GENERATED_SOURCE_CACHE_FRAGMENT)) continue;
+    throw new Error(`Agent runtime source patch contains generated cache path: ${changedPath}`);
+  }
+}
+
 function refreshLocalEvidence(
   projectRoot: string,
   lock: OpenInterpreterReleaseLock,
@@ -107,6 +119,7 @@ function refreshLocalEvidence(
   const patches = lock.source.patches.map((patch) => {
     const sourcePath = path.join(projectRoot, ...patch.sourcePath.split("/"));
     assertRegularFile(sourcePath, `Agent runtime source patch ${patch.sourcePath}`);
+    assertSourcePatchHygiene(sourcePath);
     return { ...patch, sha256: readSha256(sourcePath) };
   });
   const licensePath = path.join(projectRoot, ...lock.notices.licensePath.split("/"));
@@ -226,12 +239,15 @@ export async function createAgentRuntimeRelockCandidate(
     if (!options.fingerprintSchema && process.platform !== "darwin") {
       throw new Error("Agent runtime schema fingerprinting requires macOS");
     }
-    const schemaBinaryPath = process.arch === "x64" ? x64.binaryPath : arm64.binaryPath;
+    const fingerprintSchema = options.fingerprintSchema ?? generateAgentRuntimeSchemaFingerprint;
+    const arm64SchemaSha256 = fingerprintSchema(arm64.binaryPath);
+    const x64SchemaSha256 = fingerprintSchema(x64.binaryPath);
+    if (arm64SchemaSha256 !== x64SchemaSha256) {
+      throw new Error("Agent runtime architecture packages expose different protocol schemas");
+    }
     candidate = parseOpenInterpreterReleaseLock({
       ...candidate,
-      protocolSchemaSha256: (options.fingerprintSchema ?? generateAgentRuntimeSchemaFingerprint)(
-        schemaBinaryPath,
-      ),
+      protocolSchemaSha256: arm64SchemaSha256,
       assets: {
         "darwin-arm64": {
           ...candidate.assets["darwin-arm64"],

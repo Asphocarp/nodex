@@ -165,9 +165,11 @@ transcript-bearing Thread reads, and it does not register child conversation
 subscriptions. Consequently a child's history length does not change overview
 payload shape or retained conversation memory.
 
-The bundled Agent runtime enables MultiAgentV2 with a total four-Thread session
-cap including the root, bounded wait intervals, and the `collaboration` tool
-namespace. Its mailbox has independent count and byte capacity, child creation
+The bundled Agent runtime selects the multi-agent protocol from the active model's
+catalog metadata. Nodex does not globally force V2 because doing so can expose a
+reserved tool schema that a V1 model cannot accept. Models that select V2 use its
+four-Thread default session cap including the root, bounded wait intervals, and
+the `collaboration` tool namespace. Its mailbox has independent count and byte capacity, child creation
 does not commit before the initial task is accepted, and completion delivery is
 backed by a bounded SQLite outbox. The runtime persists a stable completion
 receipt before mailbox delivery, marks it delivered only after the parent has

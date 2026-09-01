@@ -516,9 +516,13 @@ vp run agent-runtime:publish -- \
 ```
 
 As with the Desktop Tool runtime, create and push the tag at an exact reviewed
-Nodex commit first. The publisher verifies that tag, opts out of app Latest, and
-asserts that the stable app Latest release does not move. After publication,
-restage from the release-lock URLs and rerun the macOS runtime gate.
+Nodex commit first. The publisher requires a clean worktree, resolves that tag
+to the current commit, and verifies the repository, tag, source commit, archive
+sizes, and archive SHA-256 values against the canonical Agent runtime lock. It
+opts out of app Latest and asserts that the stable app Latest release does not
+move. After publication, restage from the release-lock URLs and rerun the macOS
+runtime gate. The complete source-patch, relock, staging, and probe procedure is
+owned by [`resources/agent-runtime/README.md`](../resources/agent-runtime/README.md).
 
 ## Post-release acceptance
 

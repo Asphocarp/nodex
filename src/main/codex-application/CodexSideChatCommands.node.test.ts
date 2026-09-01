@@ -76,9 +76,10 @@ const forkResponse = {
     forkedFromId: parentThreadId,
   },
   cwd: "/workspace",
-  model: "gpt-test",
-  reasoningEffort: null,
+  model: "gpt-parent",
+  reasoningEffort: "high",
   modelProvider: "openai",
+  serviceTier: "priority",
   approvalPolicy: "never",
   approvalsReviewer: "user",
   sandbox: {
@@ -464,6 +465,25 @@ it.effect("rejects stale generations and fork responses containing inline histor
     );
     assert.isNull(yield* inline.routing.resolve(sideThreadId));
     yield* Scope.close(inlineScope, Exit.void);
+  }),
+);
+
+it.effect("rejects and compensates a fork whose runtime profile was substituted", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const harness = yield* makeHarness(scope, {
+      forkResponse: { ...forkResponse, model: "gpt-substituted" },
+    });
+
+    const exit = yield* Effect.exit(harness.commands.start({ parentThreadId }));
+
+    assert.isTrue(Exit.isFailure(exit));
+    assert.isNull(yield* harness.routing.resolve(sideThreadId));
+    assert.deepEqual(
+      harness.requests.map((request) => request.method),
+      ["thread/fork", "thread/unsubscribe"],
+    );
+    yield* Scope.close(scope, Exit.void);
   }),
 );
 

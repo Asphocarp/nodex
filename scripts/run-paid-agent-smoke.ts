@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -56,6 +56,10 @@ export const resolvePaidAgentSmokeInvocation = (
   if (!existsSync(authPath)) {
     throw new Error(`Paid Agent smoke requires Codex authentication at ${authPath}.`);
   }
+  const authStats = statSync(realpathSync(authPath));
+  if (!authStats.isFile()) {
+    throw new Error(`Paid Agent smoke authentication must be a regular file: ${authPath}.`);
+  }
   return {
     caseId,
     artifactRoot: path.join(
@@ -75,7 +79,7 @@ export const formatPaidAgentSmokeBanner = (invocation: PaidAgentSmokeInvocation)
     "Paid Agent smoke authorized by explicit command.",
     `Case: ${definition.id}`,
     `Execution profile: ${definition.modelId} / ${definition.reasoningEffort}`,
-    `Maximum Agent executions: ${definition.maximumAgentExecutions}`,
+    `Expected logical Agent executions: ${definition.expectedLogicalExecutions}`,
     `Authentication source: ${invocation.sourceAuthPath}`,
     `Artifacts: ${invocation.artifactRoot}`,
     "",

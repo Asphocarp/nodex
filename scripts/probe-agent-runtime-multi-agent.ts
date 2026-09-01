@@ -1,4 +1,3 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import os from "node:os";
@@ -15,6 +14,12 @@ import {
   runCodexProbeMain,
   withCodexProbeSession,
 } from "./codex-probe-session";
+import {
+  responses as modelResponses,
+  type ScriptedModelHttpResponse,
+  type ScriptedModelRequest,
+  ScriptedModelServer,
+} from "./scenarios/runtime/scripted-model-server";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..");
@@ -45,6 +50,38 @@ const durableChildResultMarker = "NODEX_DURABLE_COMPLETION_CHILD_RESULT";
 const durablePressureMarker = "NODEX_DURABLE_COMPLETION_PRESSURE";
 
 type JsonRecord = Record<string, unknown>;
+
+type IncomingMessage = Pick<ScriptedModelRequest, "body" | "onAbort" | "signal">;
+
+class SemanticModelResponse {
+  readonly #request: IncomingMessage;
+  #response: ScriptedModelHttpResponse | null = null;
+
+  constructor(request: IncomingMessage) {
+    this.#request = request;
+  }
+
+  get destroyed(): boolean {
+    return this.#request.signal.aborted;
+  }
+
+  once(event: "close", listener: () => void): void {
+    if (event === "close") this.#request.onAbort(listener);
+  }
+
+  send(response: ScriptedModelHttpResponse): void {
+    if (this.#response) throw new Error("Semantic model scenario attempted to respond twice");
+    this.#response = response;
+  }
+
+  take(): ScriptedModelHttpResponse {
+    if (this.#response) return this.#response;
+    if (this.destroyed) return { chunks: [], keepOpen: true };
+    throw new Error("Semantic model scenario completed without a response");
+  }
+}
+
+type ServerResponse = SemanticModelResponse;
 
 type SemanticState = {
   alphaCompleted: boolean;
@@ -102,13 +139,7 @@ function isRecord(value: unknown): value is JsonRecord {
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<JsonRecord> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-  if (!isRecord(parsed)) throw new Error("Semantic probe received a non-object request body");
-  return parsed;
+  return request.body;
 }
 
 function inputItems(body: JsonRecord): readonly unknown[] {
@@ -150,15 +181,7 @@ function requireFunctionOutput(body: JsonRecord, callId: string): string {
 }
 
 function sendResponsesEvents(response: ServerResponse, events: readonly JsonRecord[]): void {
-  response.writeHead(200, {
-    "cache-control": "no-cache",
-    "content-type": "text/event-stream",
-  });
-  response.end(
-    events
-      .map((event) => `event: ${String(event.type)}\ndata: ${JSON.stringify(event)}\n\n`)
-      .join(""),
-  );
+  response.send(modelResponses.stream(events));
 }
 
 function created(responseId: string): JsonRecord {
@@ -833,7 +856,7 @@ async function handleSemanticRequest(
         state.countChildRequestAborted = true;
         resolve();
       };
-      request.once("aborted", aborted);
+      request.onAbort(aborted);
       response.once("close", aborted);
     });
     if (!state.countChildRequestAborted && !response.destroyed) {
@@ -874,7 +897,7 @@ async function handleSemanticRequest(
         state.alphaInterruptRequestAborted = true;
         resolve();
       };
-      request.once("aborted", aborted);
+      request.onAbort(aborted);
       response.once("close", aborted);
     });
     if (!state.alphaInterruptRequestAborted && !response.destroyed) {
@@ -954,42 +977,22 @@ async function handleSemanticRequest(
   );
 }
 
-async function startSemanticServer(state: SemanticState): Promise<{
-  readonly baseUrl: string;
-  readonly close: () => Promise<void>;
-}> {
-  const sockets = new Set<import("node:net").Socket>();
-  const server = createServer((request, response) => {
-    void handleSemanticRequest(request, response, state).catch((error: unknown) => {
-      process.stderr.write(
-        `Semantic mock failure: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-      );
-      if (response.destroyed) return;
-      response.writeHead(500, { "content-type": "application/json" });
-      response.end(
-        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
-      );
-    });
+async function startSemanticServer(state: SemanticState): Promise<ScriptedModelServer> {
+  return await ScriptedModelServer.start({
+    exchanges: [
+      {
+        name: "multi-agent semantic scenario",
+        expectedCalls: 1,
+        maximumCalls: Number.POSITIVE_INFINITY,
+        match: (request) => request.path.endsWith("/responses"),
+        respond: async (request) => {
+          const response = new SemanticModelResponse(request);
+          await handleSemanticRequest(request, response, state);
+          return response.take();
+        },
+      },
+    ],
   });
-  server.on("connection", (socket) => {
-    sockets.add(socket);
-    socket.once("close", () => sockets.delete(socket));
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Semantic server did not bind");
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    close: async () => {
-      for (const socket of sockets) socket.destroy();
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
-    },
-  };
 }
 
 function waitForTurnCompletion(client: CodexProbeClient, threadId: string): Promise<void> {
@@ -1067,6 +1070,7 @@ async function probeMultiAgentPromise(
           expectedCodexHome: stateHome,
           env: {
             ...process.env,
+            ...server.loopbackEnvironment(),
             INTERPRETER_HOME: stateHome,
             NODEX_SEMANTIC_API_KEY: "nodex-semantic-secret",
           },
@@ -1089,7 +1093,7 @@ async function probeMultiAgentPromise(
             const providerId = "nodex-semantic-provider";
             const providerConfig = {
               name: providerId,
-              base_url: server.baseUrl,
+              base_url: `${server.baseUrl}/v1`,
               env_key: "NODEX_SEMANTIC_API_KEY",
               wire_api: "responses",
               request_max_retries: 0,
@@ -1150,7 +1154,7 @@ async function probeMultiAgentPromise(
     const durableConfig = {
       [`model_providers.${durableProviderId}`]: {
         name: durableProviderId,
-        base_url: server.baseUrl,
+        base_url: `${server.baseUrl}/v1`,
         env_key: "NODEX_SEMANTIC_API_KEY",
         wire_api: "responses",
         request_max_retries: 0,
@@ -1178,6 +1182,7 @@ async function probeMultiAgentPromise(
       expectedCodexHome: stateHome,
       env: {
         ...process.env,
+        ...server.loopbackEnvironment(),
         INTERPRETER_HOME: stateHome,
         NODEX_SEMANTIC_API_KEY: "nodex-semantic-secret",
       },
@@ -1353,6 +1358,7 @@ async function probeMultiAgentPromise(
         mode: 0o600,
       });
     }
+    server.verify();
     return report;
   } finally {
     await server.close();

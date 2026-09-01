@@ -46,6 +46,7 @@ import {
   prepareCodexPrompt,
 } from "../../../shared/codex-prompt-preparation";
 import { resolveCodexReasoningSummary } from "../../../shared/codex-reasoning-summary-policy";
+import { normalizeCodexServiceTier } from "../../../shared/codex-service-tier";
 import type {
   CodexAccountSnapshot,
   CodexApprovalRequest,
@@ -485,10 +486,6 @@ function normalizeThreadSettingsModel(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
-}
-
-function normalizeCodexServiceTier(value: unknown): CodexServiceTier {
-  return value === "fast" ? "fast" : null;
 }
 
 function createOwnerPendingSteer(
@@ -3149,7 +3146,7 @@ function buildOwnerConversationThreadSettings(
   return {
     model,
     modelProvider: threadSettings.modelProvider,
-    serviceTier: threadSettings.serviceTier,
+    serviceTier: normalizeCodexServiceTier(threadSettings.serviceTier),
     reasoningEffort,
     summary: threadSettings.summary,
     collaborationMode: {

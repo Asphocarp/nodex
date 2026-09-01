@@ -647,7 +647,7 @@ it.effect("accepts a metadata-only fork shell with inherited durable authority",
           },
           model: "gpt-fork",
           modelProvider: "openai",
-          serviceTier: "fast",
+          serviceTier: "default",
           cwd: "/repo",
           runtimeWorkspaceRoots: ["/repo", "/shared"],
           instructionSources: [],
@@ -671,6 +671,11 @@ it.effect("accepts a metadata-only fork shell with inherited durable authority",
       assert.strictEqual(accepted.durable.managedWorktreePath, "/repo");
       assert.strictEqual(accepted.durable.executionProfile?.providerId, "openai");
       assert.strictEqual(accepted.durable.executionProfile?.modelId, "gpt-fork");
+      assert.strictEqual(accepted.durable.executionProfile?.serviceTier, null);
+      assert.strictEqual(
+        accepted.canonical?.sidecar.hydrationContext?.latestThreadSettings?.serviceTier,
+        null,
+      );
       assert.deepEqual(persisted?.dynamic_tool_catalogs, [
         { namespace: "nodex", toolset_revision: 7 },
       ]);

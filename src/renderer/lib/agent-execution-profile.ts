@@ -5,6 +5,7 @@ import {
   type AgentProviderCatalog,
   type AgentProviderOption,
 } from "../../shared/agent-runtime";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 
 export const AGENT_EXECUTION_PROFILE_STORAGE_KEY = "nodex-agent-execution-profile-v1";
 
@@ -30,9 +31,16 @@ export function parseStoredAgentExecutionProfile(value: unknown): AgentExecution
   const modelId = normalizeProfileValue(record.modelId);
   const harnessId = normalizeNullableProfileValue(record.harnessId);
   const reasoningEffort = normalizeNullableProfileValue(record.reasoningEffort);
-  const serviceTier = normalizeNullableProfileValue(record.serviceTier);
+  if (
+    record.serviceTier !== null &&
+    record.serviceTier !== undefined &&
+    typeof record.serviceTier !== "string"
+  ) {
+    return null;
+  }
+  const serviceTier = normalizeCodexServiceTier(record.serviceTier);
   if (!providerId || !modelId) return null;
-  if (harnessId === undefined || reasoningEffort === undefined || serviceTier === undefined) {
+  if (harnessId === undefined || reasoningEffort === undefined) {
     return null;
   }
 

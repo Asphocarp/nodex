@@ -18,7 +18,7 @@ import {
 const unsupported = () => Effect.die(new Error("Unsupported test operation"));
 
 const model = {
-  id: "gpt-5.5",
+  id: "catalog-gpt-5.5",
   model: "gpt-5.5",
   displayName: "GPT-5.5",
   description: "",
@@ -26,8 +26,11 @@ const model = {
   supportedReasoningEfforts: [{ reasoningEffort: "high", description: "" }],
   defaultReasoningEffort: "high",
   inputModalities: ["text"],
-  serviceTiers: [{ id: "fast", name: "Fast", description: "Faster" }],
-  defaultServiceTier: null,
+  serviceTiers: [
+    { id: "default", name: "Standard", description: "Standard" },
+    { id: "fast", name: "Fast", description: "Faster" },
+  ],
+  defaultServiceTier: "default",
   isDefault: true,
 };
 
@@ -114,6 +117,11 @@ it.effect("owns provider discovery, profile resolution, and deferred credential 
 
     const catalog = yield* runtime.list();
     assert.strictEqual(catalog.providers[0]?.models[0]?.modelId, "gpt-5.5");
+    assert.deepEqual(catalog.providers[0]?.models[0]?.supportedServiceTiers, [
+      { value: null, displayName: "Standard", description: "Default speed, normal usage" },
+      { value: "fast", displayName: "Fast", description: "Faster" },
+    ]);
+    assert.strictEqual(catalog.providers[0]?.models[0]?.defaultServiceTier, null);
     assert.deepEqual(
       yield* runtime.resolveExecutionProfile({
         providerId: "openai",

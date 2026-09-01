@@ -4,6 +4,7 @@ import {
   type AgentModelOption,
   type AgentWireApi,
 } from "../../shared/agent-runtime";
+import { normalizeCodexServiceTier } from "../../shared/codex-service-tier";
 
 export const SUPPORTED_PROVIDER_IDS = [
   "openai",
@@ -214,7 +215,7 @@ export function toModelOption(
 ): AgentModelOption {
   return {
     providerId,
-    modelId: model.id,
+    modelId: model.model,
     displayName: model.displayName || model.id,
     description: model.description || null,
     hidden: model.hidden,
@@ -234,14 +235,20 @@ export function toModelOption(
               displayName: "Standard",
               description: "Default speed, normal usage",
             },
-            ...model.serviceTiers.map((tier) => ({
-              value: tier.id,
-              displayName: tier.name,
-              description: tier.description || null,
-            })),
+            ...model.serviceTiers.flatMap((tier) => {
+              const value = normalizeCodexServiceTier(tier.id);
+              if (value === null) return [];
+              return [
+                {
+                  value,
+                  displayName: tier.name,
+                  description: tier.description || null,
+                },
+              ];
+            }),
           ]
         : [],
-    defaultServiceTier: model.defaultServiceTier || null,
+    defaultServiceTier: normalizeCodexServiceTier(model.defaultServiceTier),
     inputCapabilities: model.inputModalities,
     switchPolicy: providerId === "openai" ? "same-thread" : "new-thread",
   };

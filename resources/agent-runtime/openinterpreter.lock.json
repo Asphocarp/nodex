@@ -1,31 +1,41 @@
 {
-  "schemaVersion": 2,
-  "runtimeFamily": "open-interpreter",
-  "source": {
-    "repository": "openai/codex",
-    "commit": "a9802304f60ab14c0b07e3ee0db9a9c105ab0cb3",
-    "patches": [
-      {
-        "sourcePath": "resources/agent-runtime/patches/openinterpreter-v0.0.41-codex-0.150.0-alpha.12.2.patch",
-        "artifactPath": "third-party/open-interpreter/patches/openinterpreter-v0.0.41-codex-0.150.0-alpha.12.2.patch",
-        "sha256": "e5333af41a96e617363566b576fae5b2a29ebe83ad153241ebdb91389339021f"
-      }
-    ]
+  "assets": {
+    "darwin-arm64": {
+      "archiveSha256": "ac74ed0154a6ea6089b2201749979df6e09c93b00577d489fa1a29f1cc35c128",
+      "archiveSize": 243313274,
+      "assetName": "open-interpreter-package-aarch64-apple-darwin.tar.gz",
+      "runtimeMetadataSha256": "1ad9418b116b97d55c9156f1d7a1bddb71a78f5a29cf27669a1f6a19756e450a",
+      "targetTriple": "aarch64-apple-darwin",
+      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.0.42-a9802304/open-interpreter-package-aarch64-apple-darwin.tar.gz"
+    },
+    "darwin-x64": {
+      "archiveSha256": "37e354de651f9ce2a2d6f6633c2e07f72f2c962db9722119c2b956235420d2da",
+      "archiveSize": 254909574,
+      "assetName": "open-interpreter-package-x86_64-apple-darwin.tar.gz",
+      "runtimeMetadataSha256": "46d1b9ad8ee9cbc66d501c569e613492da6107c0636806772070b8d120c9d5ce",
+      "targetTriple": "x86_64-apple-darwin",
+      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.0.42-a9802304/open-interpreter-package-x86_64-apple-darwin.tar.gz"
+    }
   },
+  "codexCompatibilityVersion": "0.150.0-alpha.12.2",
+  "notices": {
+    "licensePath": "resources/third-party/open-interpreter/LICENSE",
+    "licenseSha256": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
+    "noticePath": "resources/third-party/open-interpreter/NOTICE",
+    "noticeSha256": "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915"
+  },
+  "packageManifest": {
+    "entrypoint": "bin/interpreter",
+    "layoutVersion": 1,
+    "pathDir": "codex-path",
+    "resourcesDir": "codex-resources",
+    "variant": "open-interpreter",
+    "version": "0.0.42"
+  },
+  "protocolSchemaSha256": "03a19946ca6c2fc1685a9406326dda2069f62ecfa464a875e49655c0f17d4ff5",
   "release": {
     "repository": "junyudev/nodex",
-    "tag": "agent-runtime-v0.0.41-a9802304"
-  },
-  "runtimeVersion": "0.0.41",
-  "codexCompatibilityVersion": "0.150.0-alpha.12.2",
-  "protocolSchemaSha256": "03a19946ca6c2fc1685a9406326dda2069f62ecfa464a875e49655c0f17d4ff5",
-  "packageManifest": {
-    "layoutVersion": 1,
-    "version": "0.0.41",
-    "variant": "open-interpreter",
-    "entrypoint": "bin/interpreter",
-    "resourcesDir": "codex-resources",
-    "pathDir": "codex-path"
+    "tag": "agent-runtime-v0.0.42-a9802304"
   },
   "requiredArtifacts": [
     "codex-package.json",
@@ -34,28 +44,18 @@
     "codex-path/rg",
     "codex-resources/zsh/bin/zsh"
   ],
-  "assets": {
-    "darwin-arm64": {
-      "targetTriple": "aarch64-apple-darwin",
-      "assetName": "open-interpreter-package-aarch64-apple-darwin.tar.gz",
-      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.0.41-a9802304/open-interpreter-package-aarch64-apple-darwin.tar.gz",
-      "archiveSha256": "77a7805186b46c2ac525098c98e5e3783889ac6a7c6e3cbd974a007a6eb19623",
-      "archiveSize": 243399937,
-      "runtimeMetadataSha256": "3a4bad2b561f3a6738c78f1569966c033028f54d7207db381fb85a9c8c7df265"
-    },
-    "darwin-x64": {
-      "targetTriple": "x86_64-apple-darwin",
-      "assetName": "open-interpreter-package-x86_64-apple-darwin.tar.gz",
-      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.0.41-a9802304/open-interpreter-package-x86_64-apple-darwin.tar.gz",
-      "archiveSha256": "f12516dd4cb3dc18cc9d678665f41cb65dc281710e06139cbdfac0f3ecdf78aa",
-      "archiveSize": 254962360,
-      "runtimeMetadataSha256": "4110fd6d283eccd1c501f7e404234b1719da665c544b763dcd7885a40b40eb52"
-    }
-  },
-  "notices": {
-    "licensePath": "resources/third-party/open-interpreter/LICENSE",
-    "licenseSha256": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
-    "noticePath": "resources/third-party/open-interpreter/NOTICE",
-    "noticeSha256": "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915"
+  "runtimeFamily": "open-interpreter",
+  "runtimeVersion": "0.0.42",
+  "schemaVersion": 2,
+  "source": {
+    "commit": "a9802304f60ab14c0b07e3ee0db9a9c105ab0cb3",
+    "patches": [
+      {
+        "artifactPath": "third-party/open-interpreter/patches/openinterpreter-v0.0.42-codex-0.150.0-alpha.12.2.patch",
+        "sha256": "ad00744eb278020bffc311d097b394f3302520eb9725fc2a750835832be2206d",
+        "sourcePath": "resources/agent-runtime/patches/openinterpreter-v0.0.42-codex-0.150.0-alpha.12.2.patch"
+      }
+    ],
+    "repository": "openai/codex"
   }
 }
