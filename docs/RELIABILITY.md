@@ -285,6 +285,9 @@ framework-free renderer waits without importing the Workbench. Post-Core activat
 capabilities to the same WebContents and opens one renderer gate at a time, primary first. A shell
 that encounters Core or renderer startup failure stays visible in its branded failure state and can
 restart the app; only a renderer document that cannot load at all falls back to native error UI.
+Window Session bootstrap, bounds, and layout persistence remain in that pre-Core shell lifetime.
+They therefore stay admitted through the bounded renderer close flush even after post-Core ingress
+has begun releasing, while every other renderer capability can retire with the authority graph.
 Layer acquisition itself is the application readiness boundary: the acquired `MainApplication`
 contains only operations that are valid after startup, with no separate `start` method or
 partially initialized controller that can escape the Scope.
@@ -303,6 +306,10 @@ only submits that decision, while Window and other Layers release their own reso
 Window release stops new admission, requests renderer-aware graceful close in parallel, and then
 destroys only the still-live windows at the per-window deadline. Close and destroy outcomes are
 reported without allowing one damaged window to block the rest of the resource graph.
+An authority-process exit observed after `MainShutdown` has accepted a reason is an expected stop
+and is logged as lifecycle information. The same event without an accepted shutdown request remains
+an error even when its operating-system exit code is zero, because Core authority disappeared while
+the application still expected it to be live.
 
 The process boundary observes one `MainExit`. Normal shutdown retains its first-wins reason and
 cleanup report; failure retains the full Effect Cause and its `pre-ready`, `startup`, `runtime`, or

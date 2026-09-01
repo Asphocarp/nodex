@@ -272,20 +272,28 @@ export const make: Effect.Effect<
       );
     }
     const executionProfile = input.executionProfile ?? null;
+    // A compound execution profile is the launch authority. Legacy scalar fields remain a
+    // fallback for callers that do not yet select a provider-backed profile, but must never
+    // split thread/start from its first turn.
+    const model = executionProfile ? executionProfile.modelId : input.model;
+    const serviceTier = executionProfile ? executionProfile.serviceTier : input.serviceTier;
+    const reasoningEffort = executionProfile
+      ? executionProfile.reasoningEffort
+      : input.reasoningEffort;
     const request: ThreadStartParams = {
       cwd,
       runtimeWorkspaceRoots: workspaceRoots,
-      model: executionProfile?.modelId ?? input.model ?? null,
+      model: model ?? null,
       modelProvider: executionProfile?.providerId ?? null,
-      serviceTier: executionProfile?.serviceTier ?? input.serviceTier ?? null,
+      serviceTier: serviceTier ?? null,
       baseInstructions: input.baseInstructions ?? null,
       developerInstructions: input.additionalDeveloperInstructions ?? null,
       threadSource: input.threadSource ?? "user",
       config: {
         ...(executionProfile?.harnessId ? { harness: executionProfile.harnessId } : {}),
-        ...((executionProfile?.reasoningEffort ?? input.reasoningEffort)
+        ...(reasoningEffort
           ? {
-              model_reasoning_effort: executionProfile?.reasoningEffort ?? input.reasoningEffort,
+              model_reasoning_effort: reasoningEffort,
             }
           : {}),
       },
@@ -340,10 +348,10 @@ export const make: Effect.Effect<
             prompt: input.prompt,
             overrides: {
               promptInput: input.promptInput,
-              model: input.model,
-              serviceTier: input.serviceTier,
+              model,
+              serviceTier,
               permissionMode: input.permissionMode,
-              reasoningEffort: input.reasoningEffort,
+              reasoningEffort,
               collaborationMode: input.collaborationMode,
             },
             rendererOwnsState: true,
@@ -370,10 +378,10 @@ export const make: Effect.Effect<
       }
       const turn = yield* turns.start(entry.summary.threadId, input.prompt, {
         promptInput: input.promptInput,
-        model: input.model,
-        serviceTier: input.serviceTier,
+        model,
+        serviceTier,
         permissionMode: input.permissionMode,
-        reasoningEffort: input.reasoningEffort,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         collaborationMode: input.collaborationMode,
       });
       if (!turn) {

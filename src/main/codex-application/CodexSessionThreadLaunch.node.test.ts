@@ -4,7 +4,12 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
-import type { CodexConversationSnapshot } from "../../shared/types";
+import type {
+  CodexConversationSnapshot,
+  CodexThreadStartForSessionInput,
+  CodexTurnStartOptions,
+} from "../../shared/types";
+import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 import {
   CodexAppServerCapabilities,
   createCodexAppServerCapabilitySnapshot,
@@ -60,6 +65,8 @@ const harness = (
 ) => {
   const events: string[] = [];
   const threadStartParams: Array<Record<string, unknown>> = [];
+  const firstTurnOverrides: CodexTurnStartOptions[] = [];
+  const preparationInputs: Parameters<CodexTurnPreparation["Service"]["start"]>[0][] = [];
   const requestScheduling: unknown[] = [];
   let attempt = 0;
   const capability = createCodexAppServerCapabilitySnapshot({
@@ -121,18 +128,33 @@ const harness = (
           }),
   } as unknown as CodexThreadDirectory["Service"]);
   const turns = CodexTurnCommands.of({
-    start: (threadId: string) =>
+    start: (threadId: string, _prompt: string, overrides?: CodexTurnStartOptions) =>
       Effect.sync(() => {
         events.push(`turn:${threadId}`);
+        firstTurnOverrides.push(overrides ?? {});
         return { threadId, turnId: "turn-a", status: "inProgress", itemIds: [] } as const;
       }),
   } as unknown as CodexTurnCommands["Service"]);
+  const preparation = CodexTurnPreparation.of({
+    start: (preparationInput: Parameters<CodexTurnPreparation["Service"]["start"]>[0]) =>
+      Effect.sync(() => {
+        preparationInputs.push(preparationInput);
+        return {
+          canonicalParams: {},
+          request: {},
+          clientUserMessageId: "client-user-message-a",
+          verifiedBuiltinFullAccess: false,
+        } as never;
+      }),
+  } as unknown as CodexTurnPreparation["Service"]);
   const completion = CodexThreadLaunchCompletion.of({
     accepted: ({ threadId }) => Effect.sync(() => events.push(`complete:${threadId}`)),
     failed: () => undefined,
   });
   return {
     events,
+    firstTurnOverrides,
+    preparationInputs,
     requestScheduling,
     threadStartParams,
     effect: make.pipe(
@@ -168,12 +190,11 @@ const harness = (
       ),
       Effect.provideService(
         CodexFreshThreadLaunchRuntime,
-        CodexFreshThreadLaunchRuntime.of({} as CodexFreshThreadLaunchRuntime["Service"]),
+        CodexFreshThreadLaunchRuntime.of({
+          register: () => undefined,
+        } as unknown as CodexFreshThreadLaunchRuntime["Service"]),
       ),
-      Effect.provideService(
-        CodexTurnPreparation,
-        CodexTurnPreparation.of({} as CodexTurnPreparation["Service"]),
-      ),
+      Effect.provideService(CodexTurnPreparation, preparation),
       Effect.provideService(Scope.Scope, scope),
     ),
   };
@@ -195,6 +216,80 @@ it.effect("commits the Session link before admitting its first Turn", () =>
       "complete:thread-1",
     ]);
     assert.deepEqual(test.requestScheduling, [{ expectedHostId: "local", expectedGeneration: 19 }]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+const lunaMaxProfile: AgentExecutionProfile = {
+  providerId: "openai",
+  modelId: "gpt-5.6-luna",
+  harnessId: "codex",
+  reasoningEffort: "max",
+  serviceTier: null,
+};
+
+const conflictingLaunchInput = (): CodexThreadStartForSessionInput => ({
+  ...input(),
+  executionProfile: lunaMaxProfile,
+  model: "gpt-5.6-sol",
+  reasoningEffort: "high",
+  serviceTier: "fast",
+});
+
+it.effect("uses one execution profile for renderer-owned Thread and first-Turn planning", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const test = harness(scope);
+    const service = yield* test.effect;
+
+    const result = yield* service.start(conflictingLaunchInput(), {
+      ...context,
+      ownerClientId: "renderer-a",
+    });
+
+    assert.strictEqual(result.kind, "started");
+    assert.deepEqual(test.threadStartParams[0], {
+      cwd: "/workspace",
+      runtimeWorkspaceRoots: ["/workspace"],
+      model: "gpt-5.6-luna",
+      modelProvider: "openai",
+      serviceTier: null,
+      baseInstructions: null,
+      developerInstructions: null,
+      threadSource: "user",
+      config: {
+        harness: "codex",
+        model_reasoning_effort: "max",
+      },
+    });
+    assert.deepEqual(test.preparationInputs[0]?.overrides, {
+      promptInput: undefined,
+      model: "gpt-5.6-luna",
+      serviceTier: null,
+      permissionMode: undefined,
+      reasoningEffort: "max",
+      collaborationMode: undefined,
+    });
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("uses the same execution profile for a Main-owned first Turn", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const test = harness(scope);
+    const service = yield* test.effect;
+
+    yield* service.start(conflictingLaunchInput(), context);
+
+    assert.deepEqual(test.firstTurnOverrides[0], {
+      promptInput: undefined,
+      model: "gpt-5.6-luna",
+      serviceTier: null,
+      permissionMode: undefined,
+      reasoningEffort: "max",
+      collaborationMode: undefined,
+    });
     yield* Scope.close(scope, Exit.void);
   }),
 );

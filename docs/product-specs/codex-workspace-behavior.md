@@ -187,6 +187,10 @@ collaboration mode, and personality from current host catalogs. Existing Chats
 retain immutable provider/harness identity while allowing only catalog-approved
 same-Thread changes to mutable intelligence settings. Forks and scheduled/child
 execution inherit the source's latest durable profile.
+The selected execution profile is authoritative for both creation and the first
+Turn. Thread creation, durable metadata, and first-Turn preparation consume that
+same compound selection; scalar draft defaults are fallback only when no profile
+was selected.
 
 Fast Mode is a global preference with the focused contract in
 [Codex Fast Mode Core Enablement](codex-fast-mode-core-enablement.md). Provider
