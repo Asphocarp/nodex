@@ -34,10 +34,10 @@ describe("LocalConversation operation boundary", () => {
     await runConversationOperation("codex:thread:archive", "thread-1");
 
     expect(commandMocks.invokeQuery).toHaveBeenCalledWith("codex:model:list");
-    expect(commandMocks.invokeControl).toHaveBeenCalledWith(
-      "codex:subagents:selected:hydrate",
-      { rootThreadId: "root-1", threadId: "thread-1" },
-    );
+    expect(commandMocks.invokeControl).toHaveBeenCalledWith("codex:subagents:selected:hydrate", {
+      rootThreadId: "root-1",
+      threadId: "thread-1",
+    });
     expect(commandMocks.invokePlain).toHaveBeenCalledWith(
       localConversationCommandDefinitions["codex:thread:archive"],
       "thread-1",

@@ -183,9 +183,7 @@ export const localConversationFollowerActionDefinitions = {
   setThreadMemoryMode: followerActionDefinition("setThreadMemoryMode"),
   editLastUserTurn: followerActionDefinition("editLastUserTurn"),
   forkConversationFromTurn: followerActionDefinition("forkConversationFromTurn"),
-  hydratePersistedHistoryOccurrence: followerActionDefinition(
-    "hydratePersistedHistoryOccurrence",
-  ),
+  hydratePersistedHistoryOccurrence: followerActionDefinition("hydratePersistedHistoryOccurrence"),
   loadHistoryPage: followerActionDefinition("loadHistoryPage"),
   publishHistoryMutation: followerActionDefinition("publishHistoryMutation"),
   enqueueQueuedFollowUp: followerActionDefinition("enqueueQueuedFollowUp"),
