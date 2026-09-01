@@ -49,6 +49,7 @@
     "agent-runtime:probe:multi-agent": "tsx scripts/probe-agent-runtime-multi-agent.ts",
     "agent-runtime:probe:wire": "tsx scripts/probe-agent-runtime-wire.ts",
     "agent-runtime:publish": "tsx scripts/release/cli.ts publish-agent-runtime",
+    "agent-runtime:relock": "tsx scripts/relock-agent-runtime.ts",
     "browser-runtime:probe": "tsx scripts/run-browser-runtime-probe.ts",
     "test:agent-runtime-conformance": "vp run stage:codex-runtime:mac && vp run agent-runtime:probe && vp run agent-runtime:probe:wire && vp run agent-runtime:probe:multi-agent && vp run agent-runtime:probe:handoff",
     "test:browser-runtime-conformance": "vp run stage:codex-runtime:mac && vp run browser-runtime:probe",

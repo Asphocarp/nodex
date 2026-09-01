@@ -45,6 +45,9 @@ order with `git apply`. Use Python 3.10 or later and the upstream package
 builder once per target:
 
 ```bash
+source_root="$(pwd -P)"
+
+CODEX_REPO_ROOT="$source_root" MACOSX_DEPLOYMENT_TARGET=12.0 \
 python3 scripts/build_codex_package.py \
   --target aarch64-apple-darwin \
   --variant open-interpreter \
@@ -53,6 +56,7 @@ python3 scripts/build_codex_package.py \
   --archive-output <arm64-archive> \
   --force
 
+CODEX_REPO_ROOT="$source_root" MACOSX_DEPLOYMENT_TARGET=12.0 \
 python3 scripts/build_codex_package.py \
   --target x86_64-apple-darwin \
   --variant open-interpreter \
@@ -61,6 +65,12 @@ python3 scripts/build_codex_package.py \
   --archive-output <x64-archive> \
   --force
 ```
+
+The package builder imports its target configuration before parsing command
+arguments, so `CODEX_REPO_ROOT` is required even when it is launched from the
+repository root. Build into disposable, architecture-specific directories;
+the gzip archives retain package timestamps and must always be hashed as new
+artifacts rather than assumed reproducible from a previous build.
 
 Before packaging, validate the patched source from `codex-rs`. The focused
 tests are part of the source overlay so the mailbox, spawn transaction, and
@@ -86,8 +96,31 @@ cargo test -p codex-core --lib subagent_activity_emits_matching_start_and_comple
 cargo test -p codex-core --lib multi_agent_v2_interrupted_agent_stays_resident_listed_and_accepts_followup -- --test-threads=1
 ```
 
-Update the lock from the resulting regular files, stage each local archive, and
-run the schema and runtime gates before publication. `vp run
+Generate a complete candidate lock from the resulting regular files before
+staging or publication:
+
+```bash
+vp run agent-runtime:relock -- \
+  --arm64 <arm64-archive> \
+  --x64 <x64-archive> \
+  --tag <agent-runtime-vX.Y.Z-8-char-source-commit> \
+  --out <candidate-lock.json>
+```
+
+The relock command reads the current committed lock and the repository-owned
+patch, license, and notice files. It validates both package manifests, derives
+the runtime version from the release tag, generates the experimental schema
+fingerprint with the current Mac's native package entrypoint, and computes the
+archive and staged-metadata hashes for both architectures through the
+production staging algorithm. The output path is mandatory, must not already
+exist, and must not be the committed lock path. The command never publishes an
+artifact or edits `openinterpreter.lock.json`; review the candidate diff before
+deliberately installing it as the new lock. A published tag or asset is
+immutable, so a changed patch or rebuilt archive requires a new runtime patch
+version.
+
+After reviewing and installing the candidate lock, stage each local archive
+explicitly and run the schema and runtime gates before publication. `vp run
 test:agent-runtime-conformance` includes a packaged-binary semantic scenario,
 not just schema/tool exposure: it exercises spawn rollback, byte admission,
 send/followup/interrupt/list/wait, nested direct-parent completion, interrupted

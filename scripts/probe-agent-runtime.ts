@@ -167,7 +167,7 @@ function assertMultiAgentV2Schema(schemaRoot: string): void {
   }
 }
 
-function generateSchemaContract(binaryPath: string): string {
+export function generateAgentRuntimeSchemaFingerprint(binaryPath: string): string {
   const schemaRoot = mkdtempSync(path.join(os.tmpdir(), "nodex-agent-runtime-schema-"));
   try {
     execFileSync(
@@ -266,7 +266,7 @@ async function probeAgentRuntimePromise(
       `Agent runtime version ${versionOutput} does not match release lock ${lock.runtimeVersion}`,
     );
   }
-  const protocolSchemaSha256 = generateSchemaContract(input.binaryPath);
+  const protocolSchemaSha256 = generateAgentRuntimeSchemaFingerprint(input.binaryPath);
   if (protocolSchemaSha256 !== lock.protocolSchemaSha256) {
     throw new Error(
       `Agent runtime schema fingerprint ${protocolSchemaSha256} does not match release lock ${lock.protocolSchemaSha256}`,

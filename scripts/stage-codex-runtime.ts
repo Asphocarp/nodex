@@ -45,7 +45,7 @@ const REGULAR_RUNTIME_MODE = 0o644;
 const canonicalRuntimeMode = (executable: boolean): number =>
   executable ? EXECUTABLE_RUNTIME_MODE : REGULAR_RUNTIME_MODE;
 
-type StageAgentRuntimeOptions = {
+export type StageAgentRuntimeOptions = {
   archivePath?: string;
   browserRuntimePlatformArtifactVerifier?: BrowserRuntimePlatformArtifactVerifier;
   browserRuntimeSourceRoot?: string;
@@ -420,9 +420,13 @@ function validateNotice(input: {
   copyRuntimeFile(input.sourcePath, input.destinationPath);
 }
 
-export async function stageCodexRuntime(
+async function stageCodexRuntimeClosure(
   options: StageAgentRuntimeOptions,
-): Promise<BundledAgentRuntimeMetadata> {
+  verifyMetadataSha256: boolean,
+): Promise<{
+  metadata: BundledAgentRuntimeMetadata;
+  metadataSha256: string;
+}> {
   const repositoryRoot = resolve(options.projectRootPath ?? projectRoot);
   const lockPath = resolve(
     options.lockPath ?? resolveOpenInterpreterReleaseLockPath(repositoryRoot),
@@ -460,7 +464,10 @@ export async function stageCodexRuntime(
         });
       }
       process.stderr.write("Reused verified staged agent runtime.\n");
-      return reusable;
+      return {
+        metadata: reusable,
+        metadataSha256: bundledAgentRuntimeMetadataSha256(reusable),
+      };
     }
   }
   const tempOutputPath = mkdtempSync(join(outputPath, ".agent-runtime-stage-"));
@@ -563,7 +570,7 @@ export async function stageCodexRuntime(
     };
 
     const metadataSha256 = bundledAgentRuntimeMetadataSha256(metadata);
-    if (metadataSha256 !== asset.runtimeMetadataSha256) {
+    if (verifyMetadataSha256 && metadataSha256 !== asset.runtimeMetadataSha256) {
       throw new Error(
         `Staged agent runtime metadata does not match the release lock for ${target.targetKey}: ${metadataSha256}`,
       );
@@ -583,11 +590,28 @@ export async function stageCodexRuntime(
       });
     }
     replaceOwnedDirectory(tempRuntimeRoot, join(outputPath, "agent-runtime"));
-    return metadata;
+    return { metadata, metadataSha256 };
   } finally {
     sourceCleanup();
     rmSync(tempOutputPath, { recursive: true, force: true });
   }
+}
+
+export async function stageCodexRuntime(
+  options: StageAgentRuntimeOptions,
+): Promise<BundledAgentRuntimeMetadata> {
+  const result = await stageCodexRuntimeClosure(options, true);
+  return result.metadata;
+}
+
+/**
+ * Builds the same canonical closure as production staging while returning the
+ * candidate metadata digest before that digest is committed to the release lock.
+ */
+export function stageCodexRuntimeCandidate(
+  options: StageAgentRuntimeOptions,
+): Promise<{ metadata: BundledAgentRuntimeMetadata; metadataSha256: string }> {
+  return stageCodexRuntimeClosure({ ...options, reuseExisting: false }, false);
 }
 
 function parseCliOptions(argv: string[]): CliOptions {
