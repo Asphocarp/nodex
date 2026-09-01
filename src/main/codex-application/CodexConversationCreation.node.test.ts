@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
+import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 import type { CodexPendingWorktreeEntry } from "../../shared/codex-pending-worktree";
 import {
   CodexAppServerCapabilities,
@@ -10,6 +11,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { CodexAttachments } from "./CodexAttachments";
+import { AgentProviderRuntime } from "./AgentProviderRuntime";
 import { CodexClientThreadIdentity } from "./CodexClientThreadIdentity";
 import { make } from "./CodexConversationCreation";
 import { CodexConversationFork } from "./CodexConversationFork";
@@ -74,6 +76,7 @@ const request = (): CodexPendingWorktreeEntry => ({
 it.effect("keeps an accepted first Turn when later launch metadata fails", () =>
   Effect.gen(function* () {
     const requests: Array<{ readonly method: string; readonly scheduling: unknown }> = [];
+    const launchEvents: string[] = [];
     const unsupported = () => Effect.die(new Error("unused"));
     const capability = createCodexAppServerCapabilitySnapshot({
       hostId: "local",
@@ -103,6 +106,12 @@ it.effect("keeps an accepted first Turn when later launch metadata fails", () =>
     });
     const service = yield* make.pipe(
       Effect.provideService(
+        AgentProviderRuntime,
+        AgentProviderRuntime.of({
+          resolveExecutionProfile: (profile: AgentExecutionProfile) => Effect.succeed(profile),
+        } as unknown as AgentProviderRuntime["Service"]),
+      ),
+      Effect.provideService(
         CodexAppServerCapabilities,
         CodexAppServerCapabilities.of({
           forHost: () => Effect.succeed(capability),
@@ -121,7 +130,7 @@ it.effect("keeps an accepted first Turn when later launch metadata fails", () =>
       Effect.provideService(
         CodexClientThreadIdentity,
         CodexClientThreadIdentity.of({
-          remember: () => Effect.void,
+          remember: () => Effect.sync(() => launchEvents.push("identity:remembered")),
           forget: () => Effect.void,
         } as unknown as CodexClientThreadIdentity["Service"]),
       ),
@@ -156,7 +165,13 @@ it.effect("keeps an accepted first Turn when later launch metadata fails", () =>
       ),
       Effect.provideService(
         CodexTurnCommands,
-        CodexTurnCommands.of({ start: () => Effect.succeed({ id: "turn-1" } as never) } as never),
+        CodexTurnCommands.of({
+          start: () =>
+            Effect.sync(() => {
+              launchEvents.push("turn:accepted");
+              return { id: "turn-1" } as never;
+            }),
+        } as never),
       ),
       Effect.provideService(
         BrowserUseRuntime,
@@ -175,5 +190,6 @@ it.effect("keeps an accepted first Turn when later launch metadata fails", () =>
         scheduling: { expectedHostId: "local", expectedGeneration: 17 },
       },
     ]);
+    assert.deepEqual(launchEvents, ["turn:accepted", "identity:remembered"]);
   }),
 );

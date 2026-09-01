@@ -146,6 +146,7 @@ export class CodexThreadDirectory extends Context.Service<
       readonly executionProfile: AgentExecutionProfile | null;
       readonly runtimeWorkspaceRoots: readonly string[];
       readonly fallbackCwd: string;
+      readonly managedWorktreePath: string | null;
       readonly projectlessOutputDirectory?: string | null;
       readonly projectlessWorkspaceBrowserRoot?: string | null;
     }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
@@ -1016,6 +1017,7 @@ export const make: Effect.Effect<
       readonly executionProfile: AgentExecutionProfile | null;
       readonly runtimeWorkspaceRoots: readonly string[];
       readonly fallbackCwd: string;
+      readonly managedWorktreePath: string | null;
       readonly projectlessOutputDirectory?: string | null;
       readonly projectlessWorkspaceBrowserRoot?: string | null;
     }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
@@ -1050,8 +1052,12 @@ export const make: Effect.Effect<
                 reasoning_effort:
                   input.executionProfile?.reasoningEffort ?? input.response.reasoningEffort,
                 service_tier: input.executionProfile?.serviceTier ?? null,
+              },
+              execution_location: {
                 execution_host_id: gateway.localHostId,
                 cwd,
+                managed_worktree_path: input.managedWorktreePath,
+                runtime_workspace_roots: [...input.runtimeWorkspaceRoots],
                 projectless_output_directory: input.projectlessOutputDirectory ?? null,
                 projectless_workspace_browser_root: input.projectlessWorkspaceBrowserRoot ?? null,
               },

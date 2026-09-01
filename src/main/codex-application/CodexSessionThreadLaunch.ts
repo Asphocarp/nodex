@@ -27,6 +27,8 @@ import { allocateCodexPendingWorktreeRequest } from "../codex/codex-pending-work
 import { CoreModules } from "../core-runtime/CoreModules";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { CodexAttachments } from "./CodexAttachments";
+import { AgentProviderRuntime } from "./AgentProviderRuntime";
+import { requireExactThreadStartProfile } from "./codex-thread-start-profile";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
@@ -96,6 +98,7 @@ export const make: Effect.Effect<
   CodexSessionThreadLaunch["Service"],
   never,
   | CodexFreshThreadLaunchRuntime
+  | AgentProviderRuntime
   | CodexAttachments
   | CodexAppServerCapabilities
   | CodexGateway
@@ -110,6 +113,7 @@ export const make: Effect.Effect<
   | Scope.Scope
 > = Effect.gen(function* () {
   const core = yield* CoreModules;
+  const agentProviders = yield* AgentProviderRuntime;
   const attachments = yield* CodexAttachments;
   const capabilities = yield* CodexAppServerCapabilities;
   const gateway = yield* CodexGateway;
@@ -223,6 +227,11 @@ export const make: Effect.Effect<
               ? input.threadSource
               : "user",
           workspaceKind: "project",
+          projectAssignment: {
+            projectKind: "local",
+            projectId: input.projectId,
+            pendingCoreUpdate: false,
+          },
         },
       });
       if (!allocated.result.clientThreadId) {
@@ -271,7 +280,11 @@ export const make: Effect.Effect<
         new Error("Thread launch requires a materialized workspace"),
       );
     }
-    const executionProfile = input.executionProfile ?? null;
+    const executionProfile = input.executionProfile
+      ? yield* agentProviders
+          .resolveExecutionProfile(input.executionProfile)
+          .pipe(Effect.mapError((cause) => fail("start", input.sessionId, cause)))
+      : null;
     // A compound execution profile is the launch authority. Legacy scalar fields remain a
     // fallback for callers that do not yet select a provider-backed profile, but must never
     // split thread/start from its first turn.
@@ -285,6 +298,7 @@ export const make: Effect.Effect<
       runtimeWorkspaceRoots: workspaceRoots,
       model: model ?? null,
       modelProvider: executionProfile?.providerId ?? null,
+      ...(executionProfile ? { allowProviderModelFallback: false } : {}),
       serviceTier: serviceTier ?? null,
       baseInstructions: input.baseInstructions ?? null,
       developerInstructions: input.additionalDeveloperInstructions ?? null,
@@ -307,6 +321,10 @@ export const make: Effect.Effect<
         codexGatewayGenerationFence(capability),
       )) as unknown as ThreadStartResponse;
       startedThreadId = response.thread.id;
+      yield* Effect.try({
+        try: () => requireExactThreadStartProfile(response, executionProfile),
+        catch: (cause) => fail("start", input.sessionId, cause),
+      });
       const entry = yield* directory
         .acceptSessionStart({
           response,
@@ -315,6 +333,7 @@ export const make: Effect.Effect<
           executionProfile,
           runtimeWorkspaceRoots: workspaceRoots,
           fallbackCwd: cwd,
+          managedWorktreePath: null,
           projectlessOutputDirectory: projectless?.outputDirectory ?? null,
           projectlessWorkspaceBrowserRoot: projectless?.workspaceRoot ?? null,
         })

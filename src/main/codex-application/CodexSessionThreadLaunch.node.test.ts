@@ -10,6 +10,7 @@ import type {
   CodexTurnStartOptions,
 } from "../../shared/types";
 import type { AgentExecutionProfile } from "../../shared/agent-runtime";
+import type { CodexPendingWorktreeRequest } from "../../shared/codex-pending-worktree";
 import {
   CodexAppServerCapabilities,
   createCodexAppServerCapabilitySnapshot,
@@ -18,6 +19,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { CodexAttachments } from "./CodexAttachments";
+import { AgentProviderRuntime } from "./AgentProviderRuntime";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { make, type CodexSessionThreadLaunchContext } from "./CodexSessionThreadLaunch";
@@ -61,12 +63,14 @@ const harness = (
   options: {
     readonly start?: Effect.Effect<unknown>;
     readonly commitFails?: boolean;
+    readonly responseOverrides?: Readonly<Record<string, unknown>>;
   } = {},
 ) => {
   const events: string[] = [];
   const threadStartParams: Array<Record<string, unknown>> = [];
   const firstTurnOverrides: CodexTurnStartOptions[] = [];
   const preparationInputs: Parameters<CodexTurnPreparation["Service"]["start"]>[0][] = [];
+  const pendingWorktreeRequests: CodexPendingWorktreeRequest[] = [];
   const requestScheduling: unknown[] = [];
   let attempt = 0;
   const capability = createCodexAppServerCapabilitySnapshot({
@@ -86,7 +90,17 @@ const harness = (
       threadStartParams.push(params);
       events.push(`start:${attempt}`);
       return (options.start ?? Effect.void).pipe(
-        Effect.as({ thread: { id: `thread-${attempt}` } }),
+        Effect.as({
+          thread: { id: `thread-${attempt}` },
+          model: params.model,
+          modelProvider: params.modelProvider,
+          reasoningEffort:
+            typeof params.config === "object" && params.config !== null
+              ? (params.config as Record<string, unknown>).model_reasoning_effort
+              : null,
+          serviceTier: params.serviceTier,
+          ...options.responseOverrides,
+        }),
       );
     }) as CodexGateway["Service"]["requestLocal"],
   } as unknown as CodexGateway["Service"]);
@@ -155,9 +169,16 @@ const harness = (
     events,
     firstTurnOverrides,
     preparationInputs,
+    pendingWorktreeRequests,
     requestScheduling,
     threadStartParams,
     effect: make.pipe(
+      Effect.provideService(
+        AgentProviderRuntime,
+        AgentProviderRuntime.of({
+          resolveExecutionProfile: (profile: AgentExecutionProfile) => Effect.succeed(profile),
+        } as unknown as AgentProviderRuntime["Service"]),
+      ),
       Effect.provideService(
         CodexAppServerCapabilities,
         CodexAppServerCapabilities.of({
@@ -186,7 +207,12 @@ const harness = (
       ),
       Effect.provideService(
         CodexPendingWorktreeRuntime,
-        CodexPendingWorktreeRuntime.of({} as CodexPendingWorktreeRuntime["Service"]),
+        CodexPendingWorktreeRuntime.of({
+          create: (request) =>
+            Effect.sync(() => {
+              pendingWorktreeRequests.push(request);
+            }),
+        } as CodexPendingWorktreeRuntime["Service"]),
       ),
       Effect.provideService(
         CodexFreshThreadLaunchRuntime,
@@ -253,6 +279,7 @@ it.effect("uses one execution profile for renderer-owned Thread and first-Turn p
       runtimeWorkspaceRoots: ["/workspace"],
       model: "gpt-5.6-luna",
       modelProvider: "openai",
+      allowProviderModelFallback: false,
       serviceTier: null,
       baseInstructions: null,
       developerInstructions: null,
@@ -294,6 +321,21 @@ it.effect("uses the same execution profile for a Main-owned first Turn", () =>
   }),
 );
 
+it.effect("deletes a provider-substituted Thread before admitting its first Turn", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const test = harness(scope, { responseOverrides: { model: "gpt-5.6-sol" } });
+    const service = yield* test.effect;
+
+    const result = yield* Effect.exit(service.start(conflictingLaunchInput(), context));
+
+    assert.isTrue(Exit.isFailure(result));
+    assert.deepEqual(test.events, ["start:1", "delete:thread-1"]);
+    assert.deepEqual(test.firstTurnOverrides, []);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("preserves the semantic source of protocol-created child Threads", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
@@ -303,6 +345,27 @@ it.effect("preserves the semantic source of protocol-created child Threads", () 
     yield* service.start({ ...input(), threadSource: "subagent" }, context);
 
     assert.strictEqual(test.threadStartParams[0]?.threadSource, "subagent");
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("freezes Project authority into managed-worktree launches", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const test = harness(scope);
+    const service = yield* test.effect;
+
+    const result = yield* service.start({ ...input(), runInTarget: "newWorktree" }, context);
+
+    assert.strictEqual(result.kind, "pending");
+    const request = test.pendingWorktreeRequests[0];
+    assert.strictEqual(request?.launchMode, "start-conversation");
+    if (request?.launchMode !== "start-conversation") return;
+    assert.deepEqual(request.startConversationParamsInput.projectAssignment, {
+      projectKind: "local",
+      projectId: "project-a",
+      pendingCoreUpdate: false,
+    });
     yield* Scope.close(scope, Exit.void);
   }),
 );

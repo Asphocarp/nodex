@@ -88,7 +88,7 @@ export const prepareScenarioCodexAppServerRuntimeSync = (
   writeScenarioAgentRuntime(
     repositoryRoot,
     fs.readFileSync(mockPeerPath, "utf8"),
-    "0.0.0-queue-parity-scenario",
+    "0.145.0-alpha.15",
   );
 
 export const prepareScenarioAgentRuntime = async (

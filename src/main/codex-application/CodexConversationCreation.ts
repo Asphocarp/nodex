@@ -24,6 +24,8 @@ import {
 import { CodexGateway, codexGatewayGenerationFence } from "../codex-runtime/CodexGateway";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { CodexAttachments } from "./CodexAttachments";
+import { AgentProviderRuntime } from "./AgentProviderRuntime";
+import { requireExactThreadStartProfile } from "./codex-thread-start-profile";
 import { CodexClientThreadIdentity } from "./CodexClientThreadIdentity";
 import { CodexConversationFork } from "./CodexConversationFork";
 import { CodexForkSidePanelTransfer } from "./CodexForkSidePanelTransferRuntime";
@@ -91,6 +93,7 @@ export const make: Effect.Effect<
   CodexConversationCreation["Service"],
   never,
   | CodexAttachments
+  | AgentProviderRuntime
   | CodexClientThreadIdentity
   | CodexConversationFork
   | CodexForkSidePanelTransfer
@@ -107,6 +110,7 @@ export const make: Effect.Effect<
   | ProjectWorkspace
 > = Effect.gen(function* () {
   const attachments = yield* CodexAttachments;
+  const agentProviders = yield* AgentProviderRuntime;
   const clientIdentity = yield* CodexClientThreadIdentity;
   const conversationFork = yield* CodexConversationFork;
   const forkTransfers = yield* CodexForkSidePanelTransfer;
@@ -231,12 +235,17 @@ export const make: Effect.Effect<
       sourceWorkspaceRoot: entry.sourceWorkspaceRoot,
       worktreeWorkspaceRoot: workspaceRoot,
     });
-    const executionProfile = params.executionProfile ?? null;
+    const executionProfile = params.executionProfile
+      ? yield* agentProviders
+          .resolveExecutionProfile(params.executionProfile)
+          .pipe(Effect.mapError((cause) => fail("resolve-profile", entry, cause)))
+      : null;
     const request: ThreadStartParams = {
       cwd: location.cwd,
       runtimeWorkspaceRoots: [...location.workspaceRoots],
       model: executionProfile?.modelId ?? params.collaborationMode?.settings.model ?? null,
       modelProvider: executionProfile?.providerId ?? null,
+      ...(executionProfile ? { allowProviderModelFallback: false } : {}),
       serviceTier: executionProfile?.serviceTier ?? params.serviceTier,
       baseInstructions: params.baseInstructions ?? null,
       developerInstructions: params.additionalDeveloperInstructions ?? null,
@@ -262,6 +271,10 @@ export const make: Effect.Effect<
         codexGatewayGenerationFence(capability),
       )) as unknown as ThreadStartResponse;
       startedThreadId = response.thread.id;
+      yield* Effect.try({
+        try: () => requireExactThreadStartProfile(response, executionProfile),
+        catch: (cause) => fail("verify-profile", entry, cause),
+      });
       const projectId = location.projectAssignment?.projectId ?? null;
       const accepted = entry.projectSessionId
         ? yield* directory.acceptSessionStart({
@@ -271,6 +284,7 @@ export const make: Effect.Effect<
             executionProfile,
             runtimeWorkspaceRoots: location.workspaceRoots,
             fallbackCwd: location.cwd,
+            managedWorktreePath: includeWorktreeInit ? entry.worktreeGitRoot : null,
           })
         : yield* directory.acceptStandaloneStart({
             response,
@@ -284,11 +298,6 @@ export const make: Effect.Effect<
       const initialTitle = (
         entry.labelEdited ? entry.label : (entry.initialThreadTitle ?? "")
       ).trim();
-      if (entry.clientThreadId) {
-        yield* clientIdentity
-          .remember(threadId, entry.clientThreadId)
-          .pipe(Effect.mapError((cause) => fail("remember-client-thread", entry, cause)));
-      }
       const materializedGoal =
         includeWorktreeInit && entry.threadGoalDraft
           ? yield* attachments.materializeGoal(entry.threadGoalDraft)
@@ -372,6 +381,13 @@ export const make: Effect.Effect<
         "finish-worktree",
         finishWorktree(entry, threadId, workspaceRoot, includeWorktreeInit, true),
       );
+      // Publishing this mapping is the pending route's launch-ready signal. Keep it as the
+      // final required commit so renderer ownership cannot race first-Turn or worktree metadata.
+      if (entry.clientThreadId) {
+        yield* clientIdentity
+          .remember(threadId, entry.clientThreadId)
+          .pipe(Effect.mapError((cause) => fail("remember-client-thread", entry, cause)));
+      }
       return { threadId };
     }).pipe(
       Effect.onExit(() =>

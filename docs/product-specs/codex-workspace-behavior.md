@@ -190,7 +190,9 @@ execution inherit the source's latest durable profile.
 The selected execution profile is authoritative for both creation and the first
 Turn. Thread creation, durable metadata, and first-Turn preparation consume that
 same compound selection; scalar draft defaults are fallback only when no profile
-was selected.
+was selected. Main revalidates a selected profile against the live catalog,
+forbids provider model substitution, and rejects a mismatched Thread-start
+response before linking the Thread or admitting its first Turn.
 
 Fast Mode is a global preference with the focused contract in
 [Codex Fast Mode Core Enablement](codex-fast-mode-core-enablement.md). Provider
