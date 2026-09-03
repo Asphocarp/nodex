@@ -316,7 +316,33 @@ CI` push run. The privileged release `workflow_run` additionally validates the
   than applying the Nodex identity to nested Codex, Node, native addons, or
   Computer Use artifacts. Verification binds every declared artifact and checks
   the Browser peer authorizer and Computer Use helper against their manifest
-  signing teams, not the outer app's team.
+  signing teams, not the outer app's team. The native PiP and Computer Use
+  Platforms accept only the verified absolute addon path and require its actual
+  complete export set to equal the sorted manifest contract before exposing any
+  capability; ambient resource, generated-output, or home-directory candidates
+  are never searched. Native callbacks and window/service registrations are
+  scoped and removed before the verified closure is released. The materialized
+  local marketplace preserves Browser and Chrome as distinct descriptors even
+  though they share the attested Browser client/service. Chrome copies only the
+  manifest-selected plugin root and revalidates every declared closure artifact
+  before reuse; current provider availability separately controls whether that
+  descriptor is installed, and disconnect removes Chrome without removing
+  Browser.
+- Chrome native messaging installs only the declared host for one of the
+  attested browser families and extension IDs. Its private pipe rejects frames
+  above 8 MiB, malformed host-endian lengths, unverified peers, and a different
+  extension instance from the one selected for an operation. PiP click focus
+  resolves a live Main-owned descriptor before targeting the exact instance,
+  session, and numeric tab; family-level fallback is not an authorization path.
+- Remote Hosted PiP renderer IPC is limited to trusted primary windows owned by
+  `WindowRuntime`. Renderers can query a bounded revisioned snapshot, submit one
+  task-visibility intent, and report finite bounded geometry; they cannot write
+  active-task truth, replace the complete visibility map, register native
+  callbacks, or address auxiliary windows. Browser screenshot data remains in
+  Main/native boundaries and must pass raster MIME, canonical base64, header,
+  dimension, pixel, and process/thread/session retention budgets before native
+  decode. Control-surface diagnostics contain no screenshot, URL, prompt,
+  title, or raw extension payload.
 - Computer Use is fail-closed and architecture-gated. On supported Apple
   silicon macOS, Main copies the verified helper with `ditto --noqtn` into a
   canonical Codex-home location, verifies its deep strict signature, bundle ID,

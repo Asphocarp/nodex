@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Browser and Computer Use tasks now share one bounded native picture-in-picture lifecycle with durable per-task visibility, exact source-tab focus, selected-window attachment, a movable companion overlay, and live readiness for controlling supported browser profiles.
 - Nodex now requires macOS 15 Sequoia or later so the desktop app and its native Agent toolchain share one supported system baseline.
 - Long chats now open from a bounded recent tail, load older turns and persisted search results on demand, keep active history within count-and-memory budgets, and fork, edit, create Side chats, or export without first loading the complete transcript.
 - Subagent overviews now stay responsive as agent trees and child histories grow: they load bounded metadata and causal status only, keep unknown children from appearing finished, and attach history solely for the selected child detail.

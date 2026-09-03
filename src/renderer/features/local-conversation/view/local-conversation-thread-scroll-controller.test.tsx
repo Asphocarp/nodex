@@ -5,9 +5,10 @@ import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals
 import { render, settleAsyncRender } from "../../../test/dom";
 import {
   REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE,
+  REMOTE_HOSTED_PIP_HOME_SURFACE_ATTRIBUTE,
   REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID,
   REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE,
-  type CodexDesktopMessageFromView,
+  type RemoteHostedPipHostLayout,
 } from "../../../../shared/remote-hosted-pip";
 import {
   EnsureLocalConversationThreadScrollController,
@@ -15,6 +16,7 @@ import {
   useLocalConversationThreadScrollController,
   type LocalConversationThreadScrollControllerValue,
 } from "./local-conversation-thread-scroll-controller";
+import { RemoteHostedPipHostLayoutReporter } from "./remote-hosted-pip-host-layout-reporter";
 
 function ControllerProbe({
   onController,
@@ -32,6 +34,7 @@ describe("LocalConversationThreadScrollLayout", () => {
   const originalResizeObserver = globalThis.ResizeObserver;
   const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
   const originalElectronBridge = window.electronBridge;
+  const originalApi = window.api;
 
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
@@ -58,6 +61,9 @@ describe("LocalConversationThreadScrollLayout", () => {
       value: originalGetBoundingClientRect,
       writable: true,
     });
+
+    if (typeof originalApi === "undefined") Reflect.deleteProperty(window, "api");
+    else Object.defineProperty(window, "api", { configurable: true, value: originalApi });
 
     if (typeof originalElectronBridge === "undefined") {
       Reflect.deleteProperty(window, "electronBridge");
@@ -265,15 +271,16 @@ describe("LocalConversationThreadScrollLayout", () => {
   });
 
   test("publishes remote-hosted PiP host layout and clears it on unmount", async () => {
-    const messages: CodexDesktopMessageFromView[] = [];
+    const layouts: Array<RemoteHostedPipHostLayout | null> = [];
 
-    Object.defineProperty(window, "electronBridge", {
+    Object.defineProperty(window, "api", {
       configurable: true,
       value: {
-        sendMessageFromView: async (message: CodexDesktopMessageFromView) => {
-          messages.push(message);
+        invoke: async (channel: string, layout: RemoteHostedPipHostLayout | null) => {
+          if (channel === "remote-hosted-pip:host-layout:report") layouts.push(layout);
+          return true;
         },
-        showContextMenu: async () => null,
+        on: () => () => undefined,
       },
       writable: true,
     });
@@ -303,27 +310,24 @@ describe("LocalConversationThreadScrollLayout", () => {
     });
 
     const view = render(
-      <EnsureLocalConversationThreadScrollController>
-        <LocalConversationThreadScrollLayout footer={<div>Composer</div>}>
-          <div>Thread content</div>
-        </LocalConversationThreadScrollLayout>
-      </EnsureLocalConversationThreadScrollController>,
+      <>
+        <RemoteHostedPipHostLayoutReporter isCodexHomeAvailable={false} />
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationThreadScrollLayout footer={<div>Composer</div>}>
+            <div>Thread content</div>
+          </LocalConversationThreadScrollLayout>
+        </EnsureLocalConversationThreadScrollController>
+      </>,
     );
 
     await settleAsyncRender();
 
-    const layoutMessage = messages.find(
-      (message) =>
-        message.type === "remote-hosted-pip-host-layout-changed" &&
-        message.layout.anchorRect !== null,
-    );
-    expect(layoutMessage !== undefined).toBe(true);
-    if (layoutMessage?.type !== "remote-hosted-pip-host-layout-changed") return;
+    const layout = layouts.find((candidate) => candidate?.anchorRect !== null);
+    expect(layout !== undefined).toBe(true);
+    if (!layout) return;
 
-    const bottomRight = layoutMessage.layout.anchors?.find(
-      (anchor) => anchor.alignment === "bottom-right",
-    );
-    expect(layoutMessage.layout.hostId).toBe(REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID);
+    const bottomRight = layout.anchors?.find((anchor) => anchor.alignment === "bottom-right");
+    expect(layout.hostId).toBe(REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID);
     expect(bottomRight?.point.y ?? 0).toBe(718);
 
     await act(async () => {
@@ -331,12 +335,76 @@ describe("LocalConversationThreadScrollLayout", () => {
       await Promise.resolve();
     });
 
-    const lastMessage = messages[messages.length - 1];
-    expect(lastMessage?.type ?? "").toBe("remote-hosted-pip-host-layout-changed");
-    if (lastMessage?.type !== "remote-hosted-pip-host-layout-changed") return;
+    const lastLayout = layouts[layouts.length - 1];
+    expect(lastLayout?.anchorRect === null).toBe(true);
+    expect(lastLayout?.anchors === null).toBe(true);
+  });
 
-    expect(lastMessage.layout.anchorRect === null).toBe(true);
-    expect(lastMessage.layout.anchors === null).toBe(true);
+  test("reports Home geometry and animates only a subsequent visible layout", async () => {
+    const layouts: RemoteHostedPipHostLayout[] = [];
+    Object.defineProperty(window, "api", {
+      configurable: true,
+      value: {
+        invoke: async (channel: string, layout: RemoteHostedPipHostLayout) => {
+          if (channel === "remote-hosted-pip:host-layout:report") layouts.push(layout);
+          return true;
+        },
+        on: () => () => undefined,
+      },
+      writable: true,
+    });
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        if (this.getAttribute(REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE)) {
+          return createDomRect({
+            height: 800,
+            width: 1_000,
+            x: Number.parseInt(this.style.left || "100", 10),
+            y: 50,
+          });
+        }
+        if (this.getAttribute(REMOTE_HOSTED_PIP_HOME_SURFACE_ATTRIBUTE)) {
+          return createDomRect({ height: 300, width: 320, x: 740, y: 80 });
+        }
+        return originalGetBoundingClientRect.call(this);
+      },
+      writable: true,
+    });
+
+    const renderGeometry = (left: number) => (
+      <>
+        <RemoteHostedPipHostLayoutReporter isCodexHomeAvailable />
+        <div
+          {...{
+            [REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE]: REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID,
+          }}
+          style={{ left }}
+        />
+        <div {...{ [REMOTE_HOSTED_PIP_HOME_SURFACE_ATTRIBUTE]: "thread-summary-panel" }} />
+      </>
+    );
+    const view = render(renderGeometry(100));
+    await settleAsyncRender();
+
+    const initialLayout = layouts.find((layout) => layout.anchorRect !== null);
+    expect(initialLayout?.animated).toBe(false);
+    expect(initialLayout?.isCodexHomeAvailable).toBe(true);
+    expect(
+      initialLayout?.anchors?.find((anchor) => anchor.alignment === "top-right")?.point,
+    ).toEqual({ x: 1_060, y: 392 });
+
+    await act(async () => {
+      view.rerender(renderGeometry(120));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await settleAsyncRender();
+    });
+    const latestVisibleLayout = layouts.findLast((layout) => layout.anchorRect !== null);
+    expect(latestVisibleLayout?.anchorRect?.x).toBe(120);
+    expect(latestVisibleLayout?.animated).toBe(true);
   });
 
   test("records pending latest-turn placement against response spacer height", async () => {
