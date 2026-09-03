@@ -46,7 +46,13 @@ function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
 function parseIdentifier(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const parsed = value.trim();
-  if (parsed.length === 0 || parsed.length > MAX_BROWSER_PIP_IDENTIFIER_LENGTH) return null;
+  if (
+    parsed.length === 0 ||
+    parsed.length > MAX_BROWSER_PIP_IDENTIFIER_LENGTH ||
+    parsed.includes("\0")
+  ) {
+    return null;
+  }
   return parsed;
 }
 

@@ -111,7 +111,6 @@ export interface RemoteHostedPipNativePort {
 interface BrowserPresentation {
   readonly presentationId: string;
   readonly tabId: string;
-  readonly target: RemoteHostedPipBrowserPresentationTarget;
 }
 
 interface BrowserSession {
@@ -930,20 +929,20 @@ const makeRuntime = (
             if (snapshotChanged) yield* publishSnapshot();
             return false;
           }
-          const target: RemoteHostedPipBrowserPresentationTarget = {
-            backend: job.backend,
-            browserFamily: job.browserFamily,
-            browserId: session.browserId,
-            extensionInstanceId: job.extensionInstanceId,
-            presentationId: job.presentationId,
-            tabId: job.tabId,
-            threadId: job.threadId,
-          };
-          state.presentationTargets.set(job.presentationId, target);
+          if (job.backend !== "cdp") {
+            state.presentationTargets.set(job.presentationId, {
+              backend: job.backend,
+              browserFamily: job.browserFamily,
+              browserId: session.browserId,
+              extensionInstanceId: job.extensionInstanceId,
+              presentationId: job.presentationId,
+              tabId: job.tabId,
+              threadId: job.threadId,
+            });
+          }
           session.presentations.set(job.tabId, {
             presentationId: job.presentationId,
             tabId: job.tabId,
-            target,
           });
           for (const key of [...state.browserSessions.keys()]) pruneEmptyBrowserSession(key);
           yield* publishSnapshot();

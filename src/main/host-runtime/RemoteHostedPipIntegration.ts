@@ -136,6 +136,7 @@ export const live: Layer.Layer<
                   });
                   return;
                 }
+                if (target.backend !== "iab") return;
                 const tabId = Number(target.tabId);
                 if (!Number.isSafeInteger(tabId) || tabId < 0) return;
                 yield* browserUse.focusPresentation({ sessionId: target.threadId, tabId });

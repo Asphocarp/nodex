@@ -329,11 +329,18 @@ CI` push run. The privileged release `workflow_run` additionally validates the
   descriptor is installed, and disconnect removes Chrome without removing
   Browser.
 - Chrome native messaging installs only the declared host for one of the
-  attested browser families and extension IDs. Its private pipe rejects frames
-  above 8 MiB, malformed host-endian lengths, unverified peers, and a different
-  extension instance from the one selected for an operation. PiP click focus
-  resolves a live Main-owned descriptor before targeting the exact instance,
-  session, and numeric tab; family-level fallback is not an authorization path.
+  attested browser families and extension IDs. Installation writes the signed
+  host plus its bounded versioned registry atomically, preserves unrelated
+  registry owners, and refuses malformed or unsafe existing registry files.
+  The extension reverse-pipe directory may be current-user private or
+  current-user-owned sticky shared storage; every candidate must still be a
+  non-symlink Unix socket owned by the current user with no group/world write
+  permission, then match the exact attested native-host signing team and
+  identifier. The pipe rejects frames above 8 MiB, malformed host-endian
+  lengths, and a different extension instance from the one selected for an
+  operation. PiP click focus resolves a live Main-owned descriptor before
+  targeting the exact instance, session, and numeric tab within one total
+  deadline; family-level fallback is not an authorization path.
 - Remote Hosted PiP renderer IPC is limited to trusted primary windows owned by
   `WindowRuntime`. Renderers can query a bounded revisioned snapshot, submit one
   task-visibility intent, and report finite bounded geometry; they cannot write

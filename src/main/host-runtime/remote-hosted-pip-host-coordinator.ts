@@ -147,8 +147,11 @@ export function makeRemoteHostedPipHostCoordinator(
           const didStart = yield* bestEffort(
             "start-host",
             options.native.startHost({
-              hide: "Hide Picture-in-Picture",
-              placement: "Send Picture-in-Picture to Pet",
+              closeTooltip: "Return Picture-in-Picture to Nodex",
+              hide: "Hide",
+              hideForAllActiveTasks: "Hide for all active tasks",
+              hideForTask: "Hide for this task",
+              placementTooltip: "Send Picture-in-Picture to Pet",
             }),
           );
           if (didStart !== true) return;

@@ -142,6 +142,13 @@ export function buildAvatarOverlayHostLayout(
   };
 }
 
+export function shouldAnimateAvatarLayout(
+  hasPublishedHost: boolean,
+  prefersReducedMotion: boolean,
+): boolean {
+  return hasPublishedHost && !prefersReducedMotion;
+}
+
 export function clampAvatarOverlayAnchor(
   anchor: Rectangle,
   display: AvatarOverlayDisplayGeometry,

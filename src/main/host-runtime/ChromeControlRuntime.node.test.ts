@@ -2,21 +2,31 @@ import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
-import { expect } from "vite-plus/test";
+import { expect, test } from "vite-plus/test";
 import type { ChromeNativeHostInstallResult } from "../browser-use/chrome/ChromeNativeHostInstaller";
 import {
   makeChromeControlRuntime,
+  resolveChromeNativeHostNodeModuleDirs,
   type ChromeControlExtensionRegistryPort,
   type ChromeControlRuntimePorts,
 } from "./ChromeControlRuntime";
 
+test("projects only the packaged runtime Node module root into the native-host registry", () => {
+  expect(
+    resolveChromeNativeHostNodeModuleDirs("/runtime", [
+      "runtime/lib/node_modules",
+      "marketplace/plugins/browser/node_modules",
+    ]),
+  ).toEqual(["/runtime/runtime/lib/node_modules"]);
+});
+
 const extensionId = "hehggadaopoacecdllhhajmbjkdcmajg";
 const peerIdentity = { signingIdentifier: "com.openai.chrome-host", teamId: "TESTTEAM1A" };
 const installResult: ChromeNativeHostInstallResult = {
-  configPath: "/profile/chrome/extension-host-config.json",
   manifestPaths: ["/profile/chrome/native-messaging.json"],
   nativeHostPath: "/profile/chrome/native-host",
   peerIdentity,
+  registryPaths: ["/profile/chrome/chrome-native-hosts-v2.json"],
 };
 
 function makeRegistry(): ChromeControlExtensionRegistryPort & {

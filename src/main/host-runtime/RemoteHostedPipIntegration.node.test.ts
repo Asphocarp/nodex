@@ -38,6 +38,8 @@ it.effect("routes native click, visibility, and avatar events through their sema
       browserFamily: string;
       extensionInstanceId: string;
     }> = [];
+    let chromeFocusCallCount = 0;
+    let iabFocusCallCount = 0;
     const visibility: Array<{
       taskIds: readonly string[];
       value: "hidden" | "shown";
@@ -47,7 +49,10 @@ it.effect("routes native click, visibility, and avatar events through their sema
     const browserUse = BrowserUseRuntime.of({
       availableBackends: () => ["iab"],
       captureRoute: () => Effect.void,
-      focusPresentation: (input) => Deferred.succeed(iabFocus, input).pipe(Effect.as(true)),
+      focusPresentation: (input) =>
+        Effect.sync(() => {
+          iabFocusCallCount += 1;
+        }).pipe(Effect.andThen(Deferred.succeed(iabFocus, input)), Effect.as(true)),
       promoteRoute: () => Effect.void,
       releaseSession: () => Effect.void,
       turnEnded: () => Effect.void,
@@ -56,7 +61,10 @@ it.effect("routes native click, visibility, and avatar events through their sema
     const chrome = ChromeControlRuntime.of({
       available: () => true,
       changes: Stream.fromQueue(chromeChanges),
-      focusPresentation: (input) => Deferred.succeed(chromeFocus, input).pipe(Effect.asVoid),
+      focusPresentation: (input) =>
+        Effect.sync(() => {
+          chromeFocusCallCount += 1;
+        }).pipe(Effect.andThen(Deferred.succeed(chromeFocus, input)), Effect.asVoid),
       isConnectedInstance: (browserFamily, extensionInstanceId) => {
         connectedInstanceChecks.push({ browserFamily, extensionInstanceId });
         return true;
@@ -136,6 +144,17 @@ it.effect("routes native click, visibility, and avatar events through their sema
             threadId: "thread-chrome",
           });
         }
+        if (presentationId === "cdp-presentation") {
+          return Effect.succeed({
+            backend: "cdp" as const,
+            browserFamily: null,
+            browserId: "cdp-browser",
+            extensionInstanceId: null,
+            presentationId,
+            tabId: "9",
+            threadId: "thread-cdp",
+          });
+        }
         return Effect.succeed(null);
       },
       retireCodexThreads: () => Effect.void,
@@ -188,6 +207,11 @@ it.effect("routes native click, visibility, and avatar events through their sema
     assert.deepEqual(connectedInstanceChecks, [
       { browserFamily: "chrome", extensionInstanceId: "profile-a" },
     ]);
+
+    native.emit({ presentationId: "cdp-presentation", type: "browser-content-clicked" });
+    yield* Effect.yieldNow;
+    assert.strictEqual(iabFocusCallCount, 1);
+    assert.strictEqual(chromeFocusCallCount, 1);
 
     yield* Queue.offer(chromeChanges, {
       connectedInstances: [],

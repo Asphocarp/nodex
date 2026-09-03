@@ -57,6 +57,8 @@ export interface ChromeExtensionFocusInput {
 
 export interface ChromeExtensionPipeRegistryOptions {
   readonly authority: ChromeBrowserAuthority;
+  /** Restricts discovery to exact socket basenames, primarily for isolated runtime probes. */
+  readonly candidateSocketNames?: readonly string[];
   readonly directory?: string;
   readonly expectedPeerIdentity: ChromeNativeHostPeerIdentity;
   readonly healthCheckIntervalMs?: number;
@@ -106,16 +108,15 @@ function authorizeExpectedPeer(
   expected: ChromeNativeHostPeerIdentity,
 ): BrowserUsePeerAuthorizationResult {
   const result = authorizer(socket);
-  if (!result.authorized) {
-    throw new Error(`Chrome extension pipe peer was rejected: ${result.reason ?? "unauthorized"}`);
-  }
   if (result.teamId !== expected.teamId) {
     throw new Error("Chrome extension pipe peer signing team does not match the native host");
   }
   if (result.signingIdentifier !== expected.signingIdentifier) {
     throw new Error("Chrome extension pipe peer signing identifier does not match the native host");
   }
-  return result;
+  // The bundled addon's generic allowlist names Codex app processes. For this reverse connection,
+  // its Security.framework-derived identity is instead bound to the exact attested native host.
+  return { ...result, authorized: true };
 }
 
 function safeErrorCode(error: unknown): string {
@@ -123,6 +124,15 @@ function safeErrorCode(error: unknown): string {
   if (typeof error.code === "string" && error.code.length <= 64) return error.code;
   if (typeof error.name === "string" && error.name.length <= 64) return error.name;
   return "error";
+}
+
+export function isSafeChromeExtensionSocketDirectoryMetadata(
+  metadata: { readonly mode: number; readonly uid: number },
+  currentUserId: number | undefined,
+): boolean {
+  if (currentUserId !== undefined && metadata.uid !== currentUserId) return false;
+  const sharedWritable = (metadata.mode & 0o022) !== 0;
+  return !sharedWritable || (metadata.mode & 0o1000) !== 0;
 }
 
 async function validateSocketPath(directory: string, socketPath: string): Promise<void> {
@@ -143,13 +153,13 @@ async function validateSocketPath(directory: string, socketPath: string): Promis
     throw new Error("Chrome extension endpoint is not a Unix socket");
   }
   const currentUserId = process.getuid?.();
-  if (
-    currentUserId !== undefined &&
-    (directoryStats.uid !== currentUserId || socketStats.uid !== currentUserId)
-  ) {
+  if (!isSafeChromeExtensionSocketDirectoryMetadata(directoryStats, currentUserId)) {
+    throw new Error("Chrome extension socket directory has unsafe ownership or permissions");
+  }
+  if (currentUserId !== undefined && socketStats.uid !== currentUserId) {
     throw new Error("Chrome extension endpoint is owned by another user");
   }
-  if ((directoryStats.mode & 0o022) !== 0 || (socketStats.mode & 0o002) !== 0) {
+  if ((socketStats.mode & 0o022) !== 0) {
     throw new Error("Chrome extension endpoint has unsafe write permissions");
   }
 }
@@ -295,6 +305,7 @@ function sameInstances(
 /** Bounded registry for verified Chrome extension native-pipe backends. */
 export class ChromeExtensionPipeRegistry {
   private readonly authority: ChromeBrowserAuthority;
+  private readonly candidateSocketNames: ReadonlySet<string> | null;
   private readonly directory: string;
   private readonly expectedPeerIdentity: ChromeNativeHostPeerIdentity;
   private readonly healthCheckIntervalMs: number;
@@ -314,6 +325,17 @@ export class ChromeExtensionPipeRegistry {
 
   constructor(options: ChromeExtensionPipeRegistryOptions) {
     this.authority = options.authority;
+    if (
+      (options.candidateSocketNames?.length ?? 0) > MAX_CANDIDATE_SOCKETS ||
+      options.candidateSocketNames?.some(
+        (name) => !name || name.length > 255 || name.includes("\0") || path.basename(name) !== name,
+      )
+    ) {
+      throw new Error("Chrome extension candidate socket name is invalid");
+    }
+    this.candidateSocketNames = options.candidateSocketNames
+      ? new Set(options.candidateSocketNames.slice(0, MAX_CANDIDATE_SOCKETS))
+      : null;
     this.directory = path.resolve(
       options.directory ?? resolveBrowserUseNativePipeDirectory(process.platform),
     );
@@ -387,13 +409,19 @@ export class ChromeExtensionPipeRegistry {
     }
     if (!instance) throw new Error("Chrome extension instance is unavailable");
 
+    const deadline = Date.now() + this.requestTimeoutMs;
+    const remainingTimeout = (): number => {
+      const remaining = deadline - Date.now();
+      if (remaining > 0) return remaining;
+      throw new Error("Chrome extension focus deadline expired");
+    };
     await validateSocketPath(this.directory, instance.socketPath);
     const currentInfo = parseBackendInfo(
       await requestSocket(
         instance.socketPath,
         "getInfo",
         { session_id: sessionId, turn_id: "pip-focus" },
-        this.requestTimeoutMs,
+        remainingTimeout(),
         this.socketPeerAuthorizer,
         this.expectedPeerIdentity,
       ),
@@ -411,7 +439,7 @@ export class ChromeExtensionPipeRegistry {
       instance.socketPath,
       "focusTab",
       { session_id: sessionId, tabId: numericTabId },
-      this.requestTimeoutMs,
+      remainingTimeout(),
       this.socketPeerAuthorizer,
       this.expectedPeerIdentity,
     );
@@ -494,12 +522,14 @@ export class ChromeExtensionPipeRegistry {
       if (
         !directoryStats.isDirectory() ||
         directoryStats.isSymbolicLink() ||
-        (currentUserId !== undefined && directoryStats.uid !== currentUserId) ||
-        (directoryStats.mode & 0o022) !== 0
+        !isSafeChromeExtensionSocketDirectoryMetadata(directoryStats, currentUserId)
       ) {
         throw new Error("Chrome extension socket directory failed ownership checks");
       }
-      names = (await fs.readdir(this.directory)).sort().slice(0, MAX_CANDIDATE_SOCKETS);
+      names = (await fs.readdir(this.directory))
+        .filter((name) => this.candidateSocketNames?.has(name) ?? true)
+        .sort()
+        .slice(0, MAX_CANDIDATE_SOCKETS);
     } catch (error) {
       if (isObject(error) && error.code === "ENOENT") return this.replaceInstances([]);
       this.onDiagnostic({ code: "directory-invalid", detail: safeErrorCode(error) });

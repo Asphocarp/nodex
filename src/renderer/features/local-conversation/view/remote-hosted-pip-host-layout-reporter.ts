@@ -39,6 +39,11 @@ export function createRemoteHostedPipHostLayoutReporter(
   let isCodexHomeAvailable = false;
   let lastIdentity: string | null = null;
   let lastLayout: RemoteHostedPipHostLayout | null = null;
+  let suppressNextAnimation = false;
+  const reducedMotion =
+    typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)")
+      : null;
   const resizeObserver = createResizeObserver(() => schedulePublish());
   const observedAttributeObserver = createObservedAttributeObserver(() => schedulePublish());
   const treeObserver = createTreeObserver((records) => {
@@ -55,10 +60,13 @@ export function createRemoteHostedPipHostLayoutReporter(
     const publishedLayout = {
       ...layout,
       animated:
+        !suppressNextAnimation &&
+        reducedMotion?.matches !== true &&
         lastLayout?.anchorRect !== undefined &&
         lastLayout.anchorRect !== null &&
         layout.anchorRect !== null,
     };
+    suppressNextAnimation = false;
     lastIdentity = identity;
     lastLayout = publishedLayout;
     void window.api
@@ -134,6 +142,12 @@ export function createRemoteHostedPipHostLayoutReporter(
     childList: true,
     subtree: true,
   });
+  const handleReducedMotionChange = () => {
+    lastIdentity = null;
+    suppressNextAnimation = true;
+    schedulePublish();
+  };
+  reducedMotion?.addEventListener("change", handleReducedMotionChange);
   window.addEventListener("resize", schedulePublish);
   document.addEventListener("scroll", schedulePublish, true);
   refreshObservedElements();
@@ -154,6 +168,7 @@ export function createRemoteHostedPipHostLayoutReporter(
       resizeObserver?.disconnect();
       observedAttributeObserver?.disconnect();
       treeObserver?.disconnect();
+      reducedMotion?.removeEventListener("change", handleReducedMotionChange);
       window.removeEventListener("resize", schedulePublish);
       document.removeEventListener("scroll", schedulePublish, true);
       clearLayout();

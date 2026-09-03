@@ -6,7 +6,10 @@ import {
   BrowserUseNativePipeFrameDecoder,
   encodeBrowserUseNativePipeFrame,
 } from "../native-pipe-framing";
-import { ChromeExtensionPipeRegistry } from "./ChromeExtensionPipeRegistry";
+import {
+  ChromeExtensionPipeRegistry,
+  isSafeChromeExtensionSocketDirectoryMetadata,
+} from "./ChromeExtensionPipeRegistry";
 import { TEST_CHROME_AUTHORITY } from "./chrome-test-fixture";
 
 const roots: string[] = [];
@@ -25,6 +28,7 @@ interface FakeBackendOptions {
   readonly extensionId?: string;
   readonly extensionInstanceId?: string;
   readonly family?: string;
+  readonly responseDelayMs?: number;
   readonly type?: "extension" | "iab";
 }
 
@@ -56,11 +60,14 @@ async function makeBackend(
                 type: options.type ?? "extension",
               }
             : {};
-        socket.write(
-          encodeBrowserUseNativePipeFrame(
-            JSON.stringify({ jsonrpc: "2.0", id: request.id, result }),
-          ),
-        );
+        const respond = () =>
+          socket.write(
+            encodeBrowserUseNativePipeFrame(
+              JSON.stringify({ jsonrpc: "2.0", id: request.id, result }),
+            ),
+          );
+        if (options.responseDelayMs) setTimeout(respond, options.responseDelayMs);
+        else respond();
       }
     });
   });
@@ -81,6 +88,52 @@ async function makeDirectory(): Promise<string> {
 }
 
 describe("Chrome extension pipe registry", () => {
+  test("accepts only private or current-user sticky socket directories", () => {
+    const currentUserId = 501;
+    expect(
+      isSafeChromeExtensionSocketDirectoryMetadata(
+        { mode: 0o40700, uid: currentUserId },
+        currentUserId,
+      ),
+    ).toBe(true);
+    expect(
+      isSafeChromeExtensionSocketDirectoryMetadata(
+        { mode: 0o41777, uid: currentUserId },
+        currentUserId,
+      ),
+    ).toBe(true);
+    expect(
+      isSafeChromeExtensionSocketDirectoryMetadata(
+        { mode: 0o40777, uid: currentUserId },
+        currentUserId,
+      ),
+    ).toBe(false);
+    expect(
+      isSafeChromeExtensionSocketDirectoryMetadata(
+        { mode: 0o41777, uid: currentUserId + 1 },
+        currentUserId,
+      ),
+    ).toBe(false);
+  });
+
+  test("discovers an attested backend in the official current-user sticky directory shape", async () => {
+    if (process.platform === "win32") return;
+    const directory = await makeDirectory();
+    await fs.chmod(directory, 0o1777);
+    const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
+    await makeBackend(directory, "extension.sock", {}, requests);
+    const registry = new ChromeExtensionPipeRegistry({
+      authority: TEST_CHROME_AUTHORITY,
+      directory,
+      expectedPeerIdentity: peerIdentity,
+      requestTimeoutMs: 500,
+      socketPeerAuthorizer: authorizePeer,
+    });
+
+    expect((await registry.refresh()).providerReady).toBe(true);
+    expect(requests.map(({ method }) => method)).toEqual(["getInfo"]);
+  });
+
   test("admits only allowlisted extension endpoints and focuses the exact instance", async () => {
     if (process.platform === "win32") return;
     const directory = await makeDirectory();
@@ -159,6 +212,39 @@ describe("Chrome extension pipe registry", () => {
     ).rejects.toThrow("tab id is invalid");
   });
 
+  test("enforces one end-to-end focus deadline across re-attestation and focus", async () => {
+    if (process.platform === "win32") return;
+    const directory = await makeDirectory();
+    const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
+    await makeBackend(
+      directory,
+      "slow-extension.sock",
+      { extensionInstanceId: "profile-slow", responseDelayMs: 300 },
+      requests,
+    );
+    const registry = new ChromeExtensionPipeRegistry({
+      authority: TEST_CHROME_AUTHORITY,
+      directory,
+      expectedPeerIdentity: peerIdentity,
+      healthCheckIntervalMs: 60_000,
+      requestTimeoutMs: 500,
+      socketPeerAuthorizer: authorizePeer,
+    });
+    await registry.start();
+
+    const startedAt = Date.now();
+    await expect(
+      registry.focusPresentation({
+        extensionInstanceId: "profile-slow",
+        sessionId: "thread-1",
+        tabId: "42",
+      }),
+    ).rejects.toThrow(/timed out|deadline expired/);
+    expect(Date.now() - startedAt).toBeLessThan(650);
+    expect(requests.slice(-2).map((request) => request.method)).toEqual(["getInfo", "focusTab"]);
+    registry.stop();
+  });
+
   test("treats a missing controlled directory as a healthy disconnected provider", async () => {
     const directory = path.join("/tmp", `nodex-chrome-missing-${process.pid}-${Date.now()}`);
     const registry = new ChromeExtensionPipeRegistry({
@@ -187,6 +273,43 @@ describe("Chrome extension pipe registry", () => {
     expect(requests).toEqual([]);
   });
 
+  test("limits an explicit runtime probe to newly observed socket names", async () => {
+    if (process.platform === "win32") return;
+    const directory = await makeDirectory();
+    const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
+    await makeBackend(directory, "existing.sock", { extensionInstanceId: "existing" }, requests);
+    await makeBackend(directory, "probe.sock", { extensionInstanceId: "probe" }, requests);
+    const registry = new ChromeExtensionPipeRegistry({
+      authority: TEST_CHROME_AUTHORITY,
+      candidateSocketNames: ["probe.sock"],
+      directory,
+      expectedPeerIdentity: peerIdentity,
+      requestTimeoutMs: 500,
+      socketPeerAuthorizer: authorizePeer,
+    });
+
+    expect(await registry.refresh()).toEqual({
+      instances: [
+        {
+          extensionId: "hehggadaopoacecdllhhajmbjkdcmajg",
+          extensionInstanceId: "probe",
+          family: "chrome",
+        },
+      ],
+      providerReady: true,
+      revision: 1,
+    });
+    expect(requests).toEqual([
+      {
+        method: "getInfo",
+        params: {
+          session_id: "nodex-chrome-provider-probe",
+          turn_id: "nodex-chrome-provider-probe",
+        },
+      },
+    ]);
+  });
+
   test("rejects an authorized peer whose signed native-host identity does not match", async () => {
     if (process.platform === "win32") return;
     const directory = await makeDirectory();
@@ -206,5 +329,26 @@ describe("Chrome extension pipe registry", () => {
 
     expect(await registry.refresh()).toEqual({ instances: [], providerReady: false, revision: 0 });
     expect(requests).toEqual([]);
+  });
+
+  test("binds the native verifier identity to the exact attested host", async () => {
+    if (process.platform === "win32") return;
+    const directory = await makeDirectory();
+    const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
+    await makeBackend(directory, "native-host.sock", {}, requests);
+    const registry = new ChromeExtensionPipeRegistry({
+      authority: TEST_CHROME_AUTHORITY,
+      directory,
+      expectedPeerIdentity: peerIdentity,
+      requestTimeoutMs: 500,
+      socketPeerAuthorizer: () => ({
+        authorized: false,
+        reason: "generic-app-allowlist-miss",
+        ...peerIdentity,
+      }),
+    });
+
+    expect((await registry.refresh()).providerReady).toBe(true);
+    expect(requests.map(({ method }) => method)).toEqual(["getInfo"]);
   });
 });

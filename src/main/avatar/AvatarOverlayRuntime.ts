@@ -5,6 +5,7 @@ import * as Scope from "effect/Scope";
 import {
   BrowserWindow,
   screen,
+  systemPreferences,
   type BrowserWindowConstructorOptions,
   type Rectangle,
 } from "electron";
@@ -32,6 +33,7 @@ import {
   resolveAvatarOverlayLayout,
   resolveAvatarOverlayPlacement,
   resolveAvatarOverlayWindowBounds,
+  shouldAnimateAvatarLayout,
 } from "./avatar-overlay-layout";
 
 interface AvatarInputShapeWindow extends BrowserWindow {
@@ -63,6 +65,7 @@ export interface AvatarOverlayRuntimeOptions {
   readonly preloadPath: string;
   readonly rendererUrl: string;
   readonly platform: NodeJS.Platform;
+  readonly prefersReducedMotion?: () => boolean;
   readonly windows: WindowRuntimeService;
   readonly onHostLayout: (window: BrowserWindow, layout: RemoteHostedPipHostLayout | null) => void;
   readonly windowFactory?: AvatarOverlayWindowFactory;
@@ -352,6 +355,17 @@ class AvatarOverlayController {
     return this.#anchor;
   }
 
+  #prefersReducedMotion(): boolean {
+    try {
+      return (
+        this.#options.prefersReducedMotion?.() ??
+        systemPreferences.getAnimationSettings().prefersReducedMotion
+      );
+    } catch {
+      return false;
+    }
+  }
+
   #resizeMascot(width: number, height: number): void {
     if (!Number.isFinite(width) || !Number.isFinite(height)) return;
     if (width < 80 || width > 224 || height < 80 || height > 260) return;
@@ -375,7 +389,10 @@ class AvatarOverlayController {
     this.#anchor = anchor;
     this.#placement = resolveAvatarOverlayPlacement(anchor, display);
     if (JSON.stringify(window.getContentBounds()) !== JSON.stringify(bounds)) {
-      window.setContentBounds(bounds, this.#hasPublishedHost);
+      window.setContentBounds(
+        bounds,
+        shouldAnimateAvatarLayout(this.#hasPublishedHost, this.#prefersReducedMotion()),
+      );
     }
     const layout = resolveAvatarOverlayLayout({
       anchor,
@@ -419,7 +436,10 @@ class AvatarOverlayController {
       });
     const hostLayout = buildAvatarOverlayHostLayout(
       layout,
-      this.#hasPublishedHost && this.#lastHostAlignment !== layout.placement,
+      shouldAnimateAvatarLayout(
+        this.#hasPublishedHost && this.#lastHostAlignment !== layout.placement,
+        this.#prefersReducedMotion(),
+      ),
     );
     this.#options.onHostLayout(window, hostLayout);
     this.#lastHostAlignment = layout.placement;

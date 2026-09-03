@@ -35,6 +35,7 @@ describe("LocalConversationThreadScrollLayout", () => {
   const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
   const originalElectronBridge = window.electronBridge;
   const originalApi = window.api;
+  const originalMatchMedia = window.matchMedia;
 
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
@@ -64,6 +65,14 @@ describe("LocalConversationThreadScrollLayout", () => {
 
     if (typeof originalApi === "undefined") Reflect.deleteProperty(window, "api");
     else Object.defineProperty(window, "api", { configurable: true, value: originalApi });
+
+    if (typeof originalMatchMedia === "undefined") Reflect.deleteProperty(window, "matchMedia");
+    else
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        value: originalMatchMedia,
+        writable: true,
+      });
 
     if (typeof originalElectronBridge === "undefined") {
       Reflect.deleteProperty(window, "electronBridge");
@@ -405,6 +414,89 @@ describe("LocalConversationThreadScrollLayout", () => {
     const latestVisibleLayout = layouts.findLast((layout) => layout.anchorRect !== null);
     expect(latestVisibleLayout?.anchorRect?.x).toBe(120);
     expect(latestVisibleLayout?.animated).toBe(true);
+  });
+
+  test("keeps native placement and preference transitions unanimated under reduced motion", async () => {
+    const layouts: RemoteHostedPipHostLayout[] = [];
+    let reducedMotionChangeListener: (() => void) | null = null;
+    const reducedMotion = {
+      matches: true,
+    };
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: () => ({
+        addEventListener: (_type: string, listener: () => void) => {
+          reducedMotionChangeListener = listener;
+        },
+        get matches() {
+          return reducedMotion.matches;
+        },
+        media: "(prefers-reduced-motion: reduce)",
+        onchange: null,
+        removeEventListener: () => undefined,
+      }),
+      writable: true,
+    });
+    Object.defineProperty(window, "api", {
+      configurable: true,
+      value: {
+        invoke: async (channel: string, layout: RemoteHostedPipHostLayout) => {
+          if (channel === "remote-hosted-pip:host-layout:report") layouts.push(layout);
+          return true;
+        },
+        on: () => () => undefined,
+      },
+      writable: true,
+    });
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        if (this.getAttribute(REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE)) {
+          return createDomRect({
+            height: 800,
+            width: 1_000,
+            x: Number.parseInt(this.style.left || "100", 10),
+            y: 50,
+          });
+        }
+        return originalGetBoundingClientRect.call(this);
+      },
+      writable: true,
+    });
+
+    const renderGeometry = (left: number) => (
+      <>
+        <RemoteHostedPipHostLayoutReporter isCodexHomeAvailable={false} />
+        <div
+          {...{
+            [REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE]: REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID,
+          }}
+          style={{ left }}
+        />
+      </>
+    );
+    const view = render(renderGeometry(100));
+    await settleAsyncRender();
+    await act(async () => {
+      view.rerender(renderGeometry(120));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await settleAsyncRender();
+    });
+
+    const visibleLayouts = layouts.filter((layout) => layout.anchorRect !== null);
+    expect(visibleLayouts.length).toBeGreaterThanOrEqual(2);
+    expect(visibleLayouts.at(-1)?.anchorRect?.x).toBe(120);
+    expect(visibleLayouts.at(-1)?.animated).toBe(false);
+
+    reducedMotion.matches = false;
+    await act(async () => {
+      reducedMotionChangeListener?.();
+      await settleAsyncRender();
+    });
+    expect(layouts.filter((layout) => layout.anchorRect !== null).at(-1)?.animated).toBe(false);
   });
 
   test("records pending latest-turn placement against response spacer height", async () => {

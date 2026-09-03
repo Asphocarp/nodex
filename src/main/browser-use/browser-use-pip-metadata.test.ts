@@ -68,6 +68,9 @@ describe("parseRemoteHostedPipNotification", () => {
         }),
       ),
     ).toBeNull();
+    expect(
+      parseRemoteHostedPipNotification(browserNotification({ browserId: "browser\0forged" })),
+    ).toBeNull();
   });
 
   test("requires an exact extension instance and family only for Chrome surfaces", () => {

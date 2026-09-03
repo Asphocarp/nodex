@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { BrowserUsePeerAuthorizationMode } from "../../shared/browser-use-host-capability";
+import { BROWSER_PLUGIN_NODE_MODULE_DIR } from "../../shared/browser-runtime-metadata";
 import type { ChromeControlRuntimeSnapshot } from "../../shared/chrome-control-settings";
 import {
   loadChromeBrowserAuthority,
@@ -85,6 +86,15 @@ export interface ChromeControlRuntimePorts {
   ) => ChromeControlExtensionRegistryPort;
   readonly requested: boolean;
   readonly runtimeUnavailableReason: string | null;
+}
+
+export function resolveChromeNativeHostNodeModuleDirs(
+  runtimeRoot: string,
+  relativePaths: readonly string[],
+): readonly string[] {
+  return relativePaths
+    .filter((relativePath) => relativePath !== BROWSER_PLUGIN_NODE_MODULE_DIR)
+    .map((relativePath) => path.join(runtimeRoot, ...relativePath.split("/")));
 }
 
 const EMPTY_REGISTRY_SNAPSHOT: ChromeExtensionPipeRegistrySnapshot = {
@@ -430,12 +440,19 @@ export const live = (options: ChromeControlRuntimeOptions): Layer.Layer<ChromeCo
           homeDirectory: options.homeDirectory,
           runtimePaths: {
             browserClientPath: bundle.paths.browserPluginClient,
+            browserServicePath: bundle.paths.browserPluginService,
             codexCliPath: bundle.paths.codexCli,
             nativeHostPath,
             nodePath: bundle.paths.node,
+            nodeModuleDirs: resolveChromeNativeHostNodeModuleDirs(
+              bundle.rootPath,
+              bundle.manifest.browserPlugin.nodeModuleDirs,
+            ),
             nodeReplPath: bundle.paths.nodeRepl,
+            resourcesPath: bundle.rootPath,
           },
           runtimeStateHome: options.runtimeStateHome,
+          runtimeVersion: chromeCapability.plugin.version,
           verifyNativeHost: async (candidatePath) => {
             const failure = verifier({
               artifact: nativeHostArtifact,

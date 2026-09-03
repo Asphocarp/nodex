@@ -433,6 +433,35 @@ it.effect("routes and releases a presentation by its exact connected Chrome inst
   }),
 );
 
+it.effect("keeps CDP screenshots display-only without registering a click target", () =>
+  Effect.gen(function* () {
+    const upserts: string[] = [];
+    const { runtime, scope } = yield* makeHarness({
+      native: {
+        upsertBrowserPresentation: ({ presentationId }) => {
+          upserts.push(presentationId);
+          return Effect.succeed(true);
+        },
+      },
+    });
+
+    yield* runtime.observeCodexOccurrence(
+      occurrence(
+        browserNotification("thread-1", "browser-1", {
+          backend: "cdp",
+          screenshot: { tabId: "7", url: pngDataUrl() },
+        }),
+      ),
+    );
+    yield* settleWorker;
+
+    assert.strictEqual(upserts.length, 1);
+    assert.strictEqual((yield* runtime.snapshot).retainedPresentationCount, 1);
+    assert.isNull(yield* runtime.resolveBrowserPresentation(upserts[0]!));
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("rejects Chrome surfaces without an exact connected family and instance", () =>
   Effect.gen(function* () {
     const upserts: string[] = [];

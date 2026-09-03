@@ -110,8 +110,11 @@ export interface RemoteHostedPipNativePlatformService {
     threadIds: readonly string[],
   ) => Effect.Effect<boolean, RemoteHostedPipNativePlatformError>;
   readonly startHost: (tooltips: {
+    readonly closeTooltip: string;
     readonly hide: string;
-    readonly placement: string;
+    readonly hideForAllActiveTasks: string;
+    readonly hideForTask: string;
+    readonly placementTooltip: string;
   }) => Effect.Effect<boolean, RemoteHostedPipNativePlatformError>;
   readonly stopHost: Effect.Effect<boolean, RemoteHostedPipNativePlatformError>;
   readonly unregisterHost: (
@@ -136,14 +139,115 @@ const nativeError = (operation: string, cause: unknown): RemoteHostedPipNativePl
 const unavailableOperation = (operation: string): RemoteHostedPipNativePlatformError =>
   nativeError(operation, new Error("Remote Hosted PiP native platform is unavailable"));
 
+const MAX_NATIVE_IDENTIFIER_LENGTH = 1_024;
+const MAX_NATIVE_TASK_IDS = 1_024;
+const MAX_NATIVE_COORDINATE = 1_000_000;
+const MAX_NATIVE_DIMENSION = 100_000;
+const MAX_NATIVE_SPRING_VALUE = 10_000;
+const MAX_NATIVE_WINDOW_HANDLE_BYTES = 64;
+const NATIVE_ANCHOR_ALIGNMENTS = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
+
 function nonEmpty(value: string, name: string): string {
-  if (value.trim().length > 0 && !value.includes("\0")) return value;
-  throw new Error(`${name} must be a non-empty string`);
+  if (
+    value.trim().length > 0 &&
+    value.length <= MAX_NATIVE_IDENTIFIER_LENGTH &&
+    !value.includes("\0")
+  ) {
+    return value;
+  }
+  throw new Error(`${name} must be a bounded non-empty string`);
 }
 
-function positiveFinite(value: number, name: string): number {
-  if (Number.isFinite(value) && value > 0) return value;
-  throw new Error(`${name} must be a positive finite number`);
+function boundedFinite(value: number, name: string, minimum: number, maximum: number): number {
+  if (Number.isFinite(value) && value >= minimum && value <= maximum) return value;
+  throw new Error(`${name} is outside its native-safe range`);
+}
+
+function coordinate(value: number, name: string): number {
+  return boundedFinite(value, name, -MAX_NATIVE_COORDINATE, MAX_NATIVE_COORDINATE);
+}
+
+function dimension(value: number, name: string, allowZero = true): number {
+  return boundedFinite(value, name, allowZero ? 0 : Number.EPSILON, MAX_NATIVE_DIMENSION);
+}
+
+function parsePoint(value: unknown, name: string): RemoteHostedPipPoint {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${name} must be a point`);
+  }
+  return {
+    x: coordinate(Reflect.get(value, "x"), `${name}.x`),
+    y: coordinate(Reflect.get(value, "y"), `${name}.y`),
+  };
+}
+
+function validateHostRegistration(input: SkyRemoteHostedPipHostRegistration): void {
+  nonEmpty(input.id, "hostId");
+  nonEmpty(input.title, "title");
+  if (typeof input.animated !== "boolean") throw new Error("animated must be a boolean");
+  if (typeof input.isCodexHomeAvailable !== "boolean") {
+    throw new Error("isCodexHomeAvailable must be a boolean");
+  }
+  if (input.presentationScope !== "all" && input.presentationScope !== "thread") {
+    throw new Error("presentationScope is invalid");
+  }
+  coordinate(input.contentBounds.x, "contentBounds.x");
+  coordinate(input.contentBounds.y, "contentBounds.y");
+  dimension(input.contentBounds.width, "contentBounds.width", false);
+  dimension(input.contentBounds.height, "contentBounds.height", false);
+  if (
+    input.nativeWindowHandle !== null &&
+    (!Buffer.isBuffer(input.nativeWindowHandle) ||
+      input.nativeWindowHandle.byteLength === 0 ||
+      input.nativeWindowHandle.byteLength > MAX_NATIVE_WINDOW_HANDLE_BYTES)
+  ) {
+    throw new Error("nativeWindowHandle must be a bounded Buffer or null");
+  }
+  if (input.anchors !== null) {
+    if (input.anchors.length > 4) throw new Error("anchors exceeds the native-safe limit");
+    const alignments = new Set<string>();
+    for (const [index, anchor] of input.anchors.entries()) {
+      if (!NATIVE_ANCHOR_ALIGNMENTS.has(anchor.alignment)) {
+        throw new Error("anchor alignment is invalid");
+      }
+      if (alignments.has(anchor.alignment)) throw new Error("anchor alignments must be unique");
+      alignments.add(anchor.alignment);
+      parsePoint(anchor.point, `anchors[${index}].point`);
+    }
+  }
+  if (input.anchorRect !== null) {
+    coordinate(input.anchorRect.x, "anchorRect.x");
+    coordinate(input.anchorRect.y, "anchorRect.y");
+    dimension(input.anchorRect.width, "anchorRect.width", false);
+    dimension(input.anchorRect.height, "anchorRect.height", false);
+  }
+  if (input.interactionPassthroughRect) {
+    coordinate(input.interactionPassthroughRect.x, "interactionPassthroughRect.x");
+    coordinate(input.interactionPassthroughRect.y, "interactionPassthroughRect.y");
+    dimension(input.interactionPassthroughRect.width, "interactionPassthroughRect.width", false);
+    dimension(input.interactionPassthroughRect.height, "interactionPassthroughRect.height", false);
+  }
+  if (input.animationSpring) {
+    boundedFinite(input.animationSpring.mass, "animationSpring.mass", 0, MAX_NATIVE_SPRING_VALUE);
+    boundedFinite(
+      input.animationSpring.stiffness,
+      "animationSpring.stiffness",
+      0,
+      MAX_NATIVE_SPRING_VALUE,
+    );
+    boundedFinite(
+      input.animationSpring.damping,
+      "animationSpring.damping",
+      0,
+      MAX_NATIVE_SPRING_VALUE,
+    );
+    boundedFinite(
+      input.animationSpring.initialVelocity,
+      "animationSpring.initialVelocity",
+      -MAX_NATIVE_SPRING_VALUE,
+      MAX_NATIVE_SPRING_VALUE,
+    );
+  }
 }
 
 function parseLayoutState(value: unknown): RemoteHostedPipNativeLayoutState {
@@ -155,8 +259,10 @@ function parseLayoutState(value: unknown): RemoteHostedPipNativeLayoutState {
       (currentHostID === null || typeof currentHostID === "string") &&
       typeof stackDisplayHeight === "number" &&
       Number.isFinite(stackDisplayHeight) &&
-      stackDisplayHeight >= 0
+      stackDisplayHeight >= 0 &&
+      stackDisplayHeight <= MAX_NATIVE_DIMENSION
     ) {
+      if (currentHostID !== null) nonEmpty(currentHostID, "currentHostID");
       return value as Exclude<RemoteHostedPipNativeLayoutState, null>;
     }
   }
@@ -164,7 +270,11 @@ function parseLayoutState(value: unknown): RemoteHostedPipNativeLayoutState {
 }
 
 function parseTaskIds(value: unknown): readonly string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_NATIVE_TASK_IDS ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
     throw new Error("Native active task IDs must be strings");
   }
   return [...new Set(value.map((entry) => nonEmpty(entry, "threadId")))];
@@ -235,12 +345,26 @@ function makeAvailable(
       callbacks.fork(Queue.offer(commands, event).pipe(Effect.asVoid));
     };
 
-    addon.setBrowserUsePIPContentClickHandler((presentationId) =>
-      publishCommand({ presentationId, type: "browser-content-clicked" }),
-    );
-    addon.setRemoteHostedPIPContentComputerUseCursorLocationHandler((point) =>
-      Queue.offerUnsafe(cursorState, { point, type: "computer-use-cursor-changed" }),
-    );
+    addon.setBrowserUsePIPContentClickHandler((presentationId) => {
+      try {
+        publishCommand({
+          presentationId: nonEmpty(presentationId, "presentationId"),
+          type: "browser-content-clicked",
+        });
+      } catch {
+        // Invalid native callback payloads are rejected at the Adapter seam.
+      }
+    });
+    addon.setRemoteHostedPIPContentComputerUseCursorLocationHandler((point) => {
+      try {
+        Queue.offerUnsafe(cursorState, {
+          point: point === null ? null : parsePoint(point, "computerUseCursor"),
+          type: "computer-use-cursor-changed",
+        });
+      } catch {
+        // Invalid native callback payloads are rejected at the Adapter seam.
+      }
+    });
     addon.setRemoteHostedPIPContentLayoutStateChangedHandler((nativeLayoutState) => {
       try {
         Queue.offerUnsafe(layoutStateEvents, {
@@ -252,16 +376,23 @@ function makeAvailable(
       }
     });
     addon.setRemoteHostedPIPContentMaxDisplaySizeChangedHandler((size) => {
-      if (Number.isFinite(size) && size > 0) {
+      try {
+        dimension(size, "size", false);
         Queue.offerUnsafe(maxDisplaySizeState, { size, type: "max-display-size-changed" });
+      } catch {
+        // Invalid native callback payloads are rejected at the Adapter boundary.
       }
     });
     addon.setRemoteHostedPIPContentPetWakeRequestHandler(() =>
       publishCommand({ type: "pet-wake-requested" }),
     );
-    addon.setRemoteHostedPIPContentShouldShowTaskHandler((threadId) =>
-      typeof threadId === "string" && threadId.length > 0 ? shouldShowTask(threadId) : false,
-    );
+    addon.setRemoteHostedPIPContentShouldShowTaskHandler((threadId) => {
+      try {
+        return shouldShowTask(nonEmpty(threadId, "threadId"));
+      } catch {
+        return false;
+      }
+    });
     addon.setRemoteHostedPIPContentVisibilityRequestHandler((isVisible, threadIds) => {
       try {
         if (typeof isVisible !== "boolean") return;
@@ -357,10 +488,7 @@ function makeAvailable(
         ),
       registerHost: (input) =>
         attempt("register-host", () => {
-          nonEmpty(input.id, "hostId");
-          nonEmpty(input.title, "title");
-          positiveFinite(input.contentBounds.width, "contentBounds.width");
-          positiveFinite(input.contentBounds.height, "contentBounds.height");
+          validateHostRegistration(input);
           return addon.registerRemoteHostedPIPContentHost(input);
         }),
       setActiveThreadId: (threadId) =>
@@ -371,7 +499,7 @@ function makeAvailable(
         ),
       setMaxDisplaySize: (size) =>
         attempt("set-max-display-size", () =>
-          addon.setRemoteHostedPIPContentMaxDisplaySize(positiveFinite(size, "size")),
+          addon.setRemoteHostedPIPContentMaxDisplaySize(dimension(size, "size", false)),
         ),
       setShouldShowTask: (predicate) => void (shouldShowTask = predicate),
       setSuppressedThreadIds: (threadIds) =>
@@ -382,8 +510,14 @@ function makeAvailable(
         attempt("start-host", () =>
           addon.startRemoteHostedPIPContentHost(
             {
+              closeTooltip: nonEmpty(tooltips.closeTooltip, "tooltips.closeTooltip"),
               hide: nonEmpty(tooltips.hide, "tooltips.hide"),
-              placement: nonEmpty(tooltips.placement, "tooltips.placement"),
+              hideForAllActiveTasks: nonEmpty(
+                tooltips.hideForAllActiveTasks,
+                "tooltips.hideForAllActiveTasks",
+              ),
+              hideForTask: nonEmpty(tooltips.hideForTask, "tooltips.hideForTask"),
+              placementTooltip: nonEmpty(tooltips.placementTooltip, "tooltips.placementTooltip"),
             },
             () => publishCommand({ type: "service-connection-lost" }),
           ),
@@ -484,7 +618,7 @@ export const fakeRemoteHostedPipNativePlatform: Effect.Effect<FakeRemoteHostedPi
       refreshVisibility: () => Effect.succeed(true),
       registerHost: (input) => succeed(() => (hosts.add(nonEmpty(input.id, "hostId")), true)),
       setActiveThreadId: (threadId) => succeed(() => ((activeThreadId = threadId), true)),
-      setMaxDisplaySize: (size) => succeed(() => (positiveFinite(size, "size"), true)),
+      setMaxDisplaySize: (size) => succeed(() => (dimension(size, "size", false), true)),
       setShouldShowTask: () => undefined,
       setSuppressedThreadIds: (threadIds) =>
         succeed(() => ((suppressedThreadIds = parseTaskIds(threadIds)), true)),

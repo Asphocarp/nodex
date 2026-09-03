@@ -82,6 +82,9 @@ it.effect(
           presentationScope: string;
         }>,
         startCount: 0,
+        startTooltips: [] as Array<
+          Parameters<RemoteHostedPipNativePlatformService["startHost"]>[0]
+        >,
         stopCount: 0,
         suppressedThreadIds: [] as string[][],
         unregisteredHostIds: [] as string[],
@@ -137,9 +140,10 @@ it.effect(
             calls.suppressedThreadIds.push([...threadIds]);
             return true;
           }),
-        startHost: () =>
+        startHost: (tooltips) =>
           Effect.sync(() => {
             calls.startCount += 1;
+            calls.startTooltips.push(tooltips);
             return true;
           }).pipe(Effect.tap(() => Deferred.succeed(started, undefined))),
         stopHost: Effect.sync(() => {
@@ -196,6 +200,15 @@ it.effect(
       yield* Effect.yieldNow;
 
       assert.strictEqual(calls.startCount, 1);
+      assert.deepEqual(calls.startTooltips, [
+        {
+          closeTooltip: "Return Picture-in-Picture to Nodex",
+          hide: "Hide",
+          hideForAllActiveTasks: "Hide for all active tasks",
+          hideForTask: "Hide for this task",
+          placementTooltip: "Send Picture-in-Picture to Pet",
+        },
+      ]);
       assert.deepEqual(calls.registeredHosts, [
         {
           id: "codex-main-thread",

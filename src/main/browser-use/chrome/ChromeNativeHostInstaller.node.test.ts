@@ -7,6 +7,7 @@ import { TEST_CHROME_AUTHORITY, TEST_CHROME_HOST_NAME } from "./chrome-test-fixt
 import {
   installChromeNativeHost,
   readChromeNativeHostIdentity,
+  resolveChromeNativeHostRegistryPaths,
   type ChromeNativeHostInstallerOptions,
 } from "./ChromeNativeHostInstaller";
 
@@ -30,11 +31,15 @@ async function makeInstallerOptions(root: string): Promise<ChromeNativeHostInsta
   await fs.mkdir(runtimeRoot, { recursive: true });
   const runtimePaths = {
     browserClientPath: await makeRuntimeFile(runtimeRoot, "browser-client.mjs", false),
+    browserServicePath: await makeRuntimeFile(runtimeRoot, "browser-service.mjs", false),
     codexCliPath: await makeRuntimeFile(runtimeRoot, "codex", true),
     nativeHostPath: await makeRuntimeFile(runtimeRoot, "ChatGPT for Chrome", true),
     nodePath: await makeRuntimeFile(runtimeRoot, "node", true),
+    nodeModuleDirs: [path.join(runtimeRoot, "node_modules")],
     nodeReplPath: await makeRuntimeFile(runtimeRoot, "node-repl.mjs", false),
+    resourcesPath: runtimeRoot,
   };
+  await fs.mkdir(runtimePaths.nodeModuleDirs[0]!, { mode: 0o700 });
   const nativeHostBytes = await fs.readFile(runtimePaths.nativeHostPath);
   return {
     authority: TEST_CHROME_AUTHORITY,
@@ -47,6 +52,7 @@ async function makeInstallerOptions(root: string): Promise<ChromeNativeHostInsta
     homeDirectory: path.join(root, "home"),
     runtimePaths,
     runtimeStateHome: path.join(root, "profile", "agent"),
+    runtimeVersion: "26.901.20858",
     verifyNativeHost: async () => peerIdentity,
   };
 }
@@ -69,39 +75,85 @@ describe("Chrome native host installer", () => {
     const expectedClosure = path.join(
       await fs.realpath(options.runtimeStateHome),
       "chrome-control",
-      "native-host-v1",
+      "native-host-v2",
       options.expectedNativeHost.sha256,
     );
     expect(result.nativeHostPath).toBe(path.join(expectedClosure, "native-host"));
     expect(result.nativeHostPath).not.toBe(options.runtimePaths.nativeHostPath);
-    expect(result.configPath).toBe(path.join(expectedClosure, "extension-host-config.json"));
     expect(result.peerIdentity).toEqual(peerIdentity);
     expect(verifiedPaths).toEqual([
-      options.runtimePaths.nativeHostPath,
+      await fs.realpath(options.runtimePaths.nativeHostPath),
       result.nativeHostPath,
       result.nativeHostPath,
     ]);
     expect(await fs.readdir(path.dirname(options.runtimePaths.nativeHostPath))).toEqual([
       "ChatGPT for Chrome",
       "browser-client.mjs",
+      "browser-service.mjs",
       "codex",
       "node",
       "node-repl.mjs",
+      "node_modules",
     ]);
 
-    const config = JSON.parse(await fs.readFile(result.configPath, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    expect(config).toEqual({
-      browserClientPath: options.runtimePaths.browserClientPath,
+    expect(result.registryPaths).toEqual([
+      path.join(
+        await fs.realpath(options.homeDirectory),
+        "Library",
+        "Application Support",
+        "OpenAI",
+        "Codex",
+        "chrome-native-hosts-v2.json",
+      ),
+      path.join(await fs.realpath(options.runtimeStateHome), "chrome-native-hosts-v2.json"),
+    ]);
+    const registries = await Promise.all(
+      result.registryPaths.map(
+        async (registryPath) =>
+          JSON.parse(await fs.readFile(registryPath, "utf8")) as {
+            entries: Array<Record<string, unknown>>;
+            schemaVersion: number;
+          },
+      ),
+    );
+    expect(registries[1]).toEqual(registries[0]);
+    expect(registries[0]?.schemaVersion).toBe(2);
+    expect(registries[0]?.entries).toHaveLength(1);
+    const entry = registries[0]!.entries[0]!;
+    expect(entry).toEqual({
+      appServerProtocolVersion: 2,
+      appVersion: "26.901.20858",
       channel: "prod",
-      codexCliPath: options.runtimePaths.codexCliPath,
-      nodePath: options.runtimePaths.nodePath,
-      nodeReplPath: options.runtimePaths.nodeReplPath,
+      cliVersion: "26.901.20858",
+      entryId: expect.stringMatching(/^codex-runtime-[a-f0-9]{32}$/u),
+      extensionBuildChannels: ["prod"],
+      extensionIds: TEST_CHROME_AUTHORITY.extensionIds,
+      installId: expect.stringMatching(/^codex-install-[a-f0-9]{32}$/u),
+      nativeHostNames: [TEST_CHROME_HOST_NAME],
+      nativeHostProtocolVersion: 2,
+      nativeHostVersion: "26.901.20858",
+      paths: {
+        browserClientPath: await fs.realpath(options.runtimePaths.browserClientPath),
+        browserServicePath: await fs.realpath(options.runtimePaths.browserServicePath),
+        codexCliPath: await fs.realpath(options.runtimePaths.codexCliPath),
+        codexHome: await fs.realpath(options.runtimeStateHome),
+        extensionHostPath: result.nativeHostPath,
+        nodeModuleDirs: await Promise.all(
+          options.runtimePaths.nodeModuleDirs.map((directory) => fs.realpath(directory)),
+        ),
+        nodePath: await fs.realpath(options.runtimePaths.nodePath),
+        nodeReplPath: await fs.realpath(options.runtimePaths.nodeReplPath),
+        resourcesPath: await fs.realpath(options.runtimePaths.resourcesPath),
+      },
+      presence: {
+        lastSeenAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),
+        pid: process.pid,
+        startedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),
+      },
       proxyHost: "127.0.0.1",
       proxyPort: 0,
-      schemaVersion: 1,
+      schemaVersion: 2,
+      updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),
     });
     expect(result.manifestPaths).toHaveLength(2);
     const manifest = JSON.parse(await fs.readFile(result.manifestPaths[0]!, "utf8")) as Record<
@@ -112,17 +164,23 @@ describe("Chrome native host installer", () => {
       allowed_origins: TEST_CHROME_AUTHORITY.extensionIds.map(
         (extensionId) => `chrome-extension://${extensionId}/`,
       ),
-      description: "Nodex browser native messaging host",
+      description: "ChatGPT browser native messaging host",
       name: TEST_CHROME_HOST_NAME,
       path: result.nativeHostPath,
       type: "stdio",
     });
     expect((await fs.stat(result.nativeHostPath)).mode & 0o777).toBe(0o700);
-    expect((await fs.stat(result.configPath)).mode & 0o777).toBe(0o600);
+    expect((await fs.stat(result.registryPaths[0]!)).mode & 0o777).toBe(0o600);
     expect((await fs.stat(result.manifestPaths[0]!)).mode & 0o777).toBe(0o644);
 
+    const firstEntryId = entry.entryId;
     const second = await installChromeNativeHost(options);
     expect(second).toEqual(result);
+    const secondRegistry = JSON.parse(await fs.readFile(second.registryPaths[0]!, "utf8")) as {
+      entries: Array<Record<string, unknown>>;
+    };
+    expect(secondRegistry.entries).toHaveLength(1);
+    expect(secondRegistry.entries[0]?.entryId).toBe(firstEntryId);
   });
 
   test("fails closed before writing when the packaged native host is rejected", async () => {
@@ -142,6 +200,61 @@ describe("Chrome native host installer", () => {
     await expect(fs.stat(options.runtimeStateHome)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  test("preserves unrelated official registry entries while replacing its own identity", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nodex-chrome-registry-merge-"));
+    temporaryRoots.push(root);
+    const options = await makeInstallerOptions(root);
+    const first = await installChromeNativeHost(options);
+    const registryPath = first.registryPaths[0]!;
+    const registry = JSON.parse(await fs.readFile(registryPath, "utf8")) as {
+      entries: unknown[];
+      schemaVersion: 2;
+    };
+    const unrelated = { entryId: "official-runtime-owned-by-another-install" };
+    await fs.writeFile(
+      registryPath,
+      `${JSON.stringify({ ...registry, entries: [unrelated, ...registry.entries] }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+
+    await installChromeNativeHost(options);
+
+    const merged = JSON.parse(await fs.readFile(registryPath, "utf8")) as {
+      entries: Array<Record<string, unknown>>;
+    };
+    expect(merged.entries).toHaveLength(2);
+    expect(merged.entries).toContainEqual(unrelated);
+    expect(
+      merged.entries.filter((entry) => String(entry.entryId ?? "").startsWith("codex-runtime-")),
+    ).toHaveLength(1);
+  });
+
+  test("refuses to clobber an invalid existing v2 registry", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nodex-chrome-registry-invalid-"));
+    temporaryRoots.push(root);
+    const options = await makeInstallerOptions(root);
+    await fs.mkdir(options.homeDirectory, { mode: 0o700, recursive: true });
+    await fs.mkdir(options.runtimeStateHome, { mode: 0o700, recursive: true });
+    const [registryPath] = resolveChromeNativeHostRegistryPaths(
+      await fs.realpath(options.homeDirectory),
+      await fs.realpath(options.runtimeStateHome),
+    );
+    await fs.mkdir(path.dirname(registryPath!), { mode: 0o700, recursive: true });
+    await fs.writeFile(registryPath!, "not-json\n", { mode: 0o600 });
+
+    await expect(installChromeNativeHost(options)).rejects.toThrow("invalid JSON");
+    expect(await fs.readFile(registryPath!, "utf8")).toBe("not-json\n");
+    await expect(
+      fs.stat(
+        path.join(
+          options.homeDirectory,
+          "Library/Application Support/Google/Chrome/NativeMessagingHosts",
+          `${TEST_CHROME_HOST_NAME}.json`,
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   test("rejects a symlink in the controlled destination chain", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "nodex-chrome-symlink-"));
     temporaryRoots.push(root);
@@ -153,6 +266,27 @@ describe("Chrome native host installer", () => {
 
     await expect(installChromeNativeHost(options)).rejects.toThrow("not a regular directory");
     expect(await fs.readdir(outside)).toEqual([]);
+  });
+
+  test("rejects a symlink in the verified runtime parent chain", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nodex-chrome-source-symlink-"));
+    temporaryRoots.push(root);
+    const options = await makeInstallerOptions(root);
+    const outside = path.join(root, "outside-runtime");
+    await fs.mkdir(outside, { mode: 0o700 });
+    const outsideService = await makeRuntimeFile(outside, "browser-service.mjs", false);
+    const linkedDirectory = path.join(options.runtimePaths.resourcesPath, "linked-runtime");
+    await fs.symlink(outside, linkedDirectory);
+
+    await expect(
+      installChromeNativeHost({
+        ...options,
+        runtimePaths: {
+          ...options.runtimePaths,
+          browserServicePath: path.join(linkedDirectory, path.basename(outsideService)),
+        },
+      }),
+    ).rejects.toThrow("non-canonical parent path");
   });
 
   test("parses the exact code-signing identity reported by codesign", () => {

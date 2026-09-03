@@ -7,6 +7,7 @@ import {
   resolveAvatarOverlayLayout,
   resolveAvatarOverlayPlacement,
   resolveAvatarOverlayWindowBounds,
+  shouldAnimateAvatarLayout,
 } from "./avatar-overlay-layout";
 
 const display = {
@@ -69,5 +70,11 @@ describe("avatar overlay native layout", () => {
     expect(
       clampAvatarOverlayAnchor({ x: -2_400, y: 2_000, width: 112, height: 121 }, display),
     ).toEqual({ x: -1_920, y: 959, width: 112, height: 121 });
+  });
+
+  it("disables native window motion when the system prefers reduced motion", () => {
+    expect(shouldAnimateAvatarLayout(false, false)).toBe(false);
+    expect(shouldAnimateAvatarLayout(true, true)).toBe(false);
+    expect(shouldAnimateAvatarLayout(true, false)).toBe(true);
   });
 });

@@ -640,19 +640,35 @@ export function resolveOutputPath(argv = process.argv.slice(2), now = new Date()
   const requested = argv.find((argument) => argument.startsWith("--out="));
   if (requested) return path.resolve(requested.slice("--out=".length));
   const timestamp = now.toISOString().replaceAll(/[:.]/gu, "-");
+  const evidenceKind = argv.includes("--real-runtime") ? "real-runtime" : "state-evidence";
   return path.resolve(
     "runs.local",
     "remote-hosted-pip",
-    `${timestamp}-state-evidence-benchmark.json`,
+    `${timestamp}-${evidenceKind}-benchmark.json`,
   );
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const report = await runStateBenchmark();
+  const report = argv.includes("--real-runtime")
+    ? await import("./benchmark-remote-hosted-pip-real-runtime.mjs").then(
+        ({ parseRealRuntimeOptions, runRealRuntimeBenchmark }) =>
+          runRealRuntimeBenchmark(parseRealRuntimeOptions(argv)),
+      )
+    : await runStateBenchmark();
   const destination = resolveOutputPath(argv);
   await mkdir(path.dirname(destination), { recursive: true });
   await writeFile(destination, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-  process.stdout.write(`${JSON.stringify({ destination, report }, null, 2)}\n`);
+  const output = argv.includes("--real-runtime")
+    ? {
+        destination,
+        memory: report.memory?.summaryByRole ?? null,
+        reason: report.reason ?? null,
+        status: report.status,
+        teardown: report.teardown ?? null,
+        workloads: report.workloads ?? null,
+      }
+    : { destination, report };
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
 }
 
 const entryPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;

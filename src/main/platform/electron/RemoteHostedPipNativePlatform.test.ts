@@ -78,6 +78,14 @@ const makePlatform = Effect.fn("RemoteHostedPipNativePlatformTest.makePlatform")
   );
 });
 
+const HOST_TOOLTIPS = {
+  closeTooltip: "Return",
+  hide: "Hide",
+  hideForAllActiveTasks: "Hide all",
+  hideForTask: "Hide task",
+  placementTooltip: "Move",
+} as const;
+
 it.effect("adapts native callbacks into a scoped typed event stream", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -120,7 +128,11 @@ it.effect("keeps lossless commands isolated from coalescible native state floods
     Effect.gen(function* () {
       const { addon, handlers } = makeAddon();
       const platform = yield* makePlatform(addon);
-      yield* platform.startHost({ hide: "Hide", placement: "Move" });
+      yield* platform.startHost(HOST_TOOLTIPS);
+      assert.deepEqual(
+        (addon.startRemoteHostedPIPContentHost as ReturnType<typeof vi.fn>).mock.calls[0]?.[0],
+        HOST_TOOLTIPS,
+      );
       const commands = yield* Effect.forkChild(
         platform.events.pipe(
           Stream.filter(
@@ -164,7 +176,7 @@ it.effect("keeps lossless commands isolated from coalescible native state floods
 it.effect("provides a deterministic fake Adapter for host-runtime tests", () =>
   Effect.gen(function* () {
     const fake = yield* fakeRemoteHostedPipNativePlatform;
-    yield* fake.service.startHost({ hide: "Hide", placement: "Move" });
+    yield* fake.service.startHost(HOST_TOOLTIPS);
     yield* fake.service.setActiveThreadId("thread-2");
     yield* fake.service.setSuppressedThreadIds(["thread-3"]);
     yield* fake.service.registerHost({
@@ -204,6 +216,66 @@ it.effect("rejects invalid native-bound presentation data before calling the add
 
       assert.strictEqual(exit._tag, "Failure");
       assert.strictEqual(upsertBrowserContent.mock.calls.length, 0);
+    }),
+  ),
+);
+
+it.effect("rejects invalid native callback payloads without poisoning later events", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { addon, handlers } = makeAddon();
+      const platform = yield* makePlatform(addon);
+      const events = yield* Effect.forkChild(
+        platform.events.pipe(Stream.take(2), Stream.runCollect),
+      );
+      yield* Effect.yieldNow;
+
+      (handlers.get("browser-click") as (presentationId: string) => void)("\0invalid");
+      (handlers.get("cursor") as (point: { x: number; y: number }) => void)({
+        x: Number.NaN,
+        y: 1,
+      });
+      (handlers.get("layout") as (state: unknown) => void)({
+        currentHostID: "x".repeat(1_025),
+        stackDisplayHeight: 10,
+      });
+      (handlers.get("max-size") as (size: number) => void)(Number.POSITIVE_INFINITY);
+
+      (handlers.get("browser-click") as (presentationId: string) => void)("presentation-1");
+      (handlers.get("cursor") as (point: { x: number; y: number }) => void)({ x: 12, y: 24 });
+
+      assert.deepEqual(yield* Fiber.join(events), [
+        { presentationId: "presentation-1", type: "browser-content-clicked" },
+        { point: { x: 12, y: 24 }, type: "computer-use-cursor-changed" },
+      ]);
+    }),
+  ),
+);
+
+it.effect("rejects unsafe host geometry before calling the addon", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { addon } = makeAddon();
+      const platform = yield* makePlatform(addon);
+      const exit = yield* Effect.exit(
+        platform.registerHost({
+          anchorRect: null,
+          anchors: null,
+          animated: false,
+          contentBounds: { height: 800, width: 1_200, x: Number.POSITIVE_INFINITY, y: 0 },
+          id: "window-1",
+          isCodexHomeAvailable: false,
+          nativeWindowHandle: null,
+          presentationScope: "thread",
+          title: "Nodex",
+        }),
+      );
+
+      assert.strictEqual(exit._tag, "Failure");
+      assert.strictEqual(
+        (addon.registerRemoteHostedPIPContentHost as ReturnType<typeof vi.fn>).mock.calls.length,
+        0,
+      );
     }),
   ),
 );

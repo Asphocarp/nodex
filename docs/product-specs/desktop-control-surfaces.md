@@ -12,9 +12,10 @@ Computer Use is available only when its verified helper and operating-system req
 
 An admitted local task becomes active when Browser Use has an open session or Computer Use has an active item. A task can have both sources; ending one source does not hide the other. Browser presentations retain only the bounded latest accepted raster for each open presentation. Computer Use remains a native remote layer and is not copied into renderer history.
 
-The native stack attaches to the focused eligible Nodex window, then the most recently eligible window, or the only eligible window. It follows native window movement without renderer animation frames. The stack may move to the restricted companion overlay; that overlay has no restorable Workbench Session and does not own task state. When the same Browser surface is already visible in the selected Nodex window, its duplicate native presentation is temporarily suppressed without changing the user's visibility choice.
+The native stack attaches to the focused eligible Nodex window, then the most recently eligible window, or the only eligible window. It follows native window movement without renderer animation frames and disables both stack-placement and companion-window motion when the system requests reduced motion. The stack may move to the restricted companion overlay; that overlay has no restorable Workbench Session and does not own task state. When the same Browser surface is already visible in the selected Nodex window, its duplicate native presentation is temporarily suppressed without changing the user's visibility choice.
 
 Clicking a built-in Browser presentation focuses its exact task tab. Clicking an existing-browser presentation focuses the exact connected extension instance and tab. A stale, disconnected, or mismatched instance is ignored rather than falling back to another profile.
+Presentations produced by the policy-gated CDP backend are display-only and do not borrow the built-in Browser focus route.
 
 ## Visibility and lifecycle
 

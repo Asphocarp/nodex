@@ -61,8 +61,11 @@ export interface SkyNativeAddon {
   spawnComputerUseService(executablePath: string): Promise<number | null>;
   startRemoteHostedPIPContentHost(
     tooltips: {
+      closeTooltip: string;
       hide: string;
-      placement: string;
+      hideForAllActiveTasks: string;
+      hideForTask: string;
+      placementTooltip: string;
     },
     onServiceConnectionLost?: () => void,
   ): boolean;
